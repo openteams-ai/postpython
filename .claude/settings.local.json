@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/test_checker.py -v)",
+      "Bash(python -m pip install pytest --quiet)",
+      "Bash(python examples/gufunc_dot.py)",
+      "Bash(python examples/gufunc_norm.py)",
+      "Bash(PYTHONPATH=. python examples/gufunc_dot.py)",
+      "Bash(PYTHONPATH=. python examples/gufunc_norm.py)",
+      "Bash(PYTHONPATH=. python examples/ufuncs_unary.py)",
+      "Bash(PYTHONPATH=. python examples/ufuncs_binary.py)",
+      "Bash(PYTHONPATH=. python examples/ufuncs_ternary.py)",
+      "Bash(PYTHONPATH=. python -m pytest tests/ppspecial/ -v)",
+      "Bash(make)",
+      "Bash(./build/spr_example)",
+      "Bash(make clean *)",
+      "Bash(./build/spr_dtype_example)"
+    ]
+  }
+}
