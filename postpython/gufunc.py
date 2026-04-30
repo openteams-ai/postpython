@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import functools
 import re
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 from .compiler.ir import GUFuncSignature
 
@@ -49,13 +49,9 @@ def _broadcast_call(fn: Callable, sig: GUFuncSignature, args: tuple) -> Any:
     running under the standard interpreter.
 
     Requires NumPy for ndarray broadcasting if array inputs are present;
-    falls back to direct call for scalar signatures.
+    falls back to direct calls when NumPy is unavailable.
     """
     n_inputs = len(sig.inputs)
-
-    # Scalar ufunc: no core dimensions — call directly.
-    if all(len(dims) == 0 for dims in sig.inputs + sig.outputs):
-        return fn(*args)
 
     # Array inputs: attempt NumPy-backed broadcast.
     try:
@@ -66,44 +62,82 @@ def _broadcast_call(fn: Callable, sig: GUFuncSignature, args: tuple) -> Any:
         if not input_arrays:
             return fn(*args)
 
-        # Determine outer (batch) dimensions by stripping core dims.
         n_core_in = [len(d) for d in sig.inputs]
-        batch_shapes = [
-            np.asarray(a).shape[:max(0, np.asarray(a).ndim - nc)]
-            for a, nc in zip(input_arrays, n_core_in)
-        ]
-        # Broadcast the batch shapes together.
-        if batch_shapes:
-            out_batch_shape = np.broadcast_shapes(*batch_shapes)
-        else:
-            out_batch_shape = ()
+        arrays = [np.asarray(a) for a in input_arrays]
+
+        # Determine outer (batch) dimensions by stripping core dims, and infer
+        # named core dimension sizes from the inputs.
+        core_sizes: dict[str, int] = {}
+        batch_shapes = []
+        for arr, dims, nc in zip(arrays, sig.inputs, n_core_in):
+            if arr.ndim < nc:
+                raise ValueError(
+                    f"gufunc input has {arr.ndim} dimensions, but signature "
+                    f"requires {nc} core dimensions"
+                )
+            batch_shape = arr.shape[:-nc] if nc else arr.shape
+            core_shape = arr.shape[-nc:] if nc else ()
+            batch_shapes.append(batch_shape)
+            for name, size in zip(dims, core_shape):
+                known = core_sizes.setdefault(name, size)
+                if known != size:
+                    raise ValueError(
+                        f"gufunc core dimension {name!r} has inconsistent "
+                        f"sizes: {known} vs {size}"
+                    )
+
+        out_batch_shape = np.broadcast_shapes(*batch_shapes) if batch_shapes else ()
 
         if not out_batch_shape:
             # No batch dims — single call.
             return fn(*args)
 
-        # Allocate output array(s) if not provided.
-        # Shape: batch_shape + core_output_dims (unknown statically → scalar assumed).
         n_out = len(sig.outputs)
-        n_core_out = [len(d) for d in sig.outputs]
-        results = [
-            np.empty(out_batch_shape + (1,) * nc) if nc else np.empty(out_batch_shape)
-            for nc in n_core_out
+        n_core_out = [len(dims) for dims in sig.outputs]
+        output_core_shapes = []
+        for dims in sig.outputs:
+            try:
+                output_core_shapes.append(tuple(core_sizes[name] for name in dims))
+            except KeyError as exc:
+                raise ValueError(
+                    f"cannot infer gufunc output core dimension {exc.args[0]!r}"
+                ) from exc
+
+        broadcast_inputs = [
+            np.broadcast_to(arr, out_batch_shape + (arr.shape[-nc:] if nc else ()))
+            for arr, nc in zip(arrays, n_core_in)
         ]
 
-        # Iterate over batch indices.
-        it = np.nditer(results[0] if results else np.empty(out_batch_shape),
-                       flags=["multi_index"])
-        while not it.finished:
-            idx = it.multi_index
-            call_args = tuple(
-                np.asarray(a)[idx] if np.asarray(a).ndim > nc else a
-                for a, nc in zip(input_arrays, n_core_in)
+        results = []
+        for i, core_shape in enumerate(output_core_shapes):
+            shape = out_batch_shape + core_shape
+            if i < len(output_args):
+                out = np.asarray(output_args[i])
+                if out.shape != shape:
+                    raise ValueError(
+                        f"gufunc output {i} has shape {out.shape}, expected {shape}"
+                    )
+            else:
+                out = np.empty(shape)
+            results.append(out)
+
+        # Iterate over batch indices and call the scalar/core Python kernel.
+        core_slices = [((slice(None),) * nc) for nc in n_core_in]
+        for idx in np.ndindex(out_batch_shape):
+            call_inputs = tuple(
+                arr[idx + core_slice] if nc else arr[idx]
+                for arr, nc, core_slice in zip(broadcast_inputs, n_core_in, core_slices)
             )
-            ret = fn(*call_args)
-            if results:
+            call_outputs = tuple(
+                out[idx + ((slice(None),) * nc)] if nc else out[idx]
+                for out, nc in zip(results, n_core_out)
+            ) if output_args else ()
+            ret = fn(*(call_inputs + call_outputs))
+            if n_out == 1 and not output_args:
                 results[0][idx] = ret
-            it.iternext()
+            elif n_out > 1 and not output_args:
+                for out, value in zip(results, ret):
+                    out[idx] = value
 
         if n_out == 1:
             return results[0]
