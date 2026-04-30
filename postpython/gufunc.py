@@ -22,8 +22,9 @@ Usage::
 from __future__ import annotations
 
 import functools
+import inspect
 import re
-from typing import Any, Callable
+from typing import Any, Callable, get_type_hints
 
 from .compiler.ir import GUFuncSignature
 
@@ -36,6 +37,76 @@ def parse_gufunc_sig(sig: str) -> GUFuncSignature:
     """Parse a gufunc signature string into a GUFuncSignature."""
     from .compiler.frontend import parse_gufunc_sig as _parse
     return _parse(sig)
+
+
+def _positional_params(fn: Callable) -> list[inspect.Parameter]:
+    """Return positional parameters accepted by *fn*."""
+    positional_kinds = (
+        inspect.Parameter.POSITIONAL_ONLY,
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    )
+    return [
+        param
+        for param in inspect.signature(fn).parameters.values()
+        if param.kind in positional_kinds
+    ]
+
+
+def _resolved_type_hints(fn: Callable) -> dict[str, Any]:
+    """Return resolved annotations, falling back to raw annotations."""
+    try:
+        return get_type_hints(fn)
+    except Exception:
+        return getattr(fn, "__annotations__", {})
+
+
+def _np_dtype_for_annotation(annotation: Any, np: Any) -> Any:
+    """Map a postyp scalar or array annotation to a NumPy dtype."""
+    try:
+        from postyp import Array, Bool, DType
+    except ImportError:
+        return None
+
+    dtype = None
+    if isinstance(annotation, type):
+        if issubclass(annotation, DType):
+            dtype = annotation
+        elif issubclass(annotation, Array):
+            dtype = getattr(annotation, "dtype", None)
+
+    if dtype is None:
+        return None
+    if dtype is Bool:
+        return np.dtype(np.bool_)
+    if dtype.itemsize == 0 or dtype.kind not in {"i", "u", "f", "c"}:
+        return None
+    return np.dtype(f"{dtype.kind}{dtype.itemsize}")
+
+
+def _output_dtypes(
+    fn: Callable,
+    sig: GUFuncSignature,
+    n_inputs: int,
+    output_param_count: int,
+    np: Any,
+) -> list[Any]:
+    """Infer NumPy dtypes for gufunc outputs from function annotations."""
+    hints = _resolved_type_hints(fn)
+    n_out = len(sig.outputs)
+
+    if output_param_count:
+        params = _positional_params(fn)
+        anns = [
+            hints.get(param.name)
+            for param in params[n_inputs : n_inputs + n_out]
+        ]
+    elif n_out == 1:
+        anns = [hints.get("return")]
+    else:
+        anns = []
+
+    dtypes = [_np_dtype_for_annotation(ann, np) for ann in anns]
+    return dtypes + [None] * (n_out - len(dtypes))
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +129,20 @@ def _broadcast_call(fn: Callable, sig: GUFuncSignature, args: tuple) -> Any:
         import numpy as np
         input_arrays = args[:n_inputs]
         output_args  = args[n_inputs:]  # pre-allocated output arrays, if any
+        n_out = len(sig.outputs)
+        output_param_count = max(0, len(_positional_params(fn)) - n_inputs)
+        kernel_expects_outputs = output_param_count > 0
+
+        if output_args and len(output_args) != n_out:
+            raise TypeError(
+                f"gufunc expected {n_out} output argument(s), "
+                f"got {len(output_args)}"
+            )
+        if kernel_expects_outputs and output_param_count != n_out:
+            raise TypeError(
+                f"gufunc kernel has {output_param_count} output parameter(s), "
+                f"but signature declares {n_out} output(s)"
+            )
 
         if not input_arrays:
             return fn(*args)
@@ -88,11 +173,10 @@ def _broadcast_call(fn: Callable, sig: GUFuncSignature, args: tuple) -> Any:
 
         out_batch_shape = np.broadcast_shapes(*batch_shapes) if batch_shapes else ()
 
-        if not out_batch_shape:
+        if not out_batch_shape and not output_args and not kernel_expects_outputs:
             # No batch dims — single call.
             return fn(*args)
 
-        n_out = len(sig.outputs)
         n_core_out = [len(dims) for dims in sig.outputs]
         output_core_shapes = []
         for dims in sig.outputs:
@@ -103,11 +187,18 @@ def _broadcast_call(fn: Callable, sig: GUFuncSignature, args: tuple) -> Any:
                     f"cannot infer gufunc output core dimension {exc.args[0]!r}"
                 ) from exc
 
+        if kernel_expects_outputs and any(not shape for shape in output_core_shapes):
+            raise TypeError(
+                "interpreted @gufunc does not support scalar write-through "
+                "output parameters; return scalar output values instead"
+            )
+
         broadcast_inputs = [
             np.broadcast_to(arr, out_batch_shape + (arr.shape[-nc:] if nc else ()))
             for arr, nc in zip(arrays, n_core_in)
         ]
 
+        output_dtypes = _output_dtypes(fn, sig, n_inputs, output_param_count, np)
         results = []
         for i, core_shape in enumerate(output_core_shapes):
             shape = out_batch_shape + core_shape
@@ -118,7 +209,12 @@ def _broadcast_call(fn: Callable, sig: GUFuncSignature, args: tuple) -> Any:
                         f"gufunc output {i} has shape {out.shape}, expected {shape}"
                     )
             else:
-                out = np.empty(shape)
+                dtype = output_dtypes[i]
+                out = (
+                    np.empty(shape, dtype=dtype)
+                    if dtype is not None
+                    else np.empty(shape)
+                )
             results.append(out)
 
         # Iterate over batch indices and call the scalar/core Python kernel.
@@ -131,11 +227,13 @@ def _broadcast_call(fn: Callable, sig: GUFuncSignature, args: tuple) -> Any:
             call_outputs = tuple(
                 out[idx + ((slice(None),) * nc)] if nc else out[idx]
                 for out, nc in zip(results, n_core_out)
-            ) if output_args else ()
+            ) if kernel_expects_outputs else ()
             ret = fn(*(call_inputs + call_outputs))
-            if n_out == 1 and not output_args:
+            if kernel_expects_outputs:
+                continue
+            if n_out == 1:
                 results[0][idx] = ret
-            elif n_out > 1 and not output_args:
+            elif n_out > 1:
                 for out, value in zip(results, ret):
                     out[idx] = value
 
