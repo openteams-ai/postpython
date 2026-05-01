@@ -243,7 +243,7 @@ def _broadcast_call(fn: Callable, sig: GUFuncSignature, args: tuple) -> Any:
 
     except ImportError:
         # NumPy not available — fall back to direct scalar call.
-        return fn(*args[:n_inputs])
+        return fn(*args)
 
 
 # ---------------------------------------------------------------------------

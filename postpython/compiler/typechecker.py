@@ -39,6 +39,14 @@ class TypeError_PP:
         return f"{self.lineno}:{self.col_offset}: {self.code} {self.message}"
 
 
+@dataclass(frozen=True)
+class ResolvedAnnotation:
+    """Compiler-facing annotation metadata."""
+    dtype: Optional[type[DType]]
+    shape: Shape = AnyShape
+    is_array: bool = False
+
+
 # ---------------------------------------------------------------------------
 # Name → scalar dtype mapping (for annotation resolution)
 # ---------------------------------------------------------------------------
@@ -63,20 +71,70 @@ _ANNOTATION_MAP: dict[str, type[DType]] = {
 }
 
 
-def resolve_annotation(node: ast.expr) -> Optional[type[DType]]:
-    """Best-effort resolution of a type annotation node to a postyp DType.
-
-    Returns None if the annotation cannot be resolved (e.g. it names
-    an Array or DataFrame type rather than a scalar).
-    """
+def _resolve_dtype_expr(node: ast.expr) -> Optional[type[DType]]:
     if isinstance(node, ast.Name):
         return _ANNOTATION_MAP.get(node.id)
     if isinstance(node, ast.Attribute):
         # e.g. postyp.Float64 — just use the attribute name
         return _ANNOTATION_MAP.get(node.attr)
-    if isinstance(node, ast.Constant) and node.value is None:
-        return None   # 'None' return type → void
     return None
+
+
+def _resolve_shape_expr(node: ast.expr) -> Shape:
+    if isinstance(node, ast.Name) and node.id == "AnyShape":
+        return AnyShape
+    if isinstance(node, ast.Subscript):
+        base = node.value
+        if (
+            (isinstance(base, ast.Name) and base.id == "Shape")
+            or (isinstance(base, ast.Attribute) and base.attr == "Shape")
+        ):
+            raw_dims = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+            dims: list[int | None] = []
+            for dim in raw_dims:
+                if isinstance(dim, ast.Constant):
+                    if dim.value is Ellipsis:
+                        return AnyShape
+                    if dim.value is None:
+                        dims.append(None)
+                    elif isinstance(dim.value, int):
+                        dims.append(dim.value)
+                elif isinstance(dim, ast.Name) and dim.id == "None":
+                    dims.append(None)
+            return Shape(*dims) if dims else AnyShape
+    return AnyShape
+
+
+def resolve_annotation_info(node: ast.expr) -> ResolvedAnnotation:
+    """Best-effort resolution of an annotation node.
+
+    Scalar annotations resolve to a dtype. Array annotations resolve to their
+    element dtype plus shape metadata so the compiler can distinguish pointer
+    values from scalar values.
+    """
+    if isinstance(node, ast.Subscript):
+        base = node.value
+        is_array = (
+            (isinstance(base, ast.Name) and base.id == "Array")
+            or (isinstance(base, ast.Attribute) and base.attr == "Array")
+        )
+        if is_array:
+            parts = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+            dtype = _resolve_dtype_expr(parts[0]) if parts else None
+            shape = _resolve_shape_expr(parts[1]) if len(parts) > 1 else AnyShape
+            return ResolvedAnnotation(dtype=dtype, shape=shape, is_array=True)
+
+    dtype = _resolve_dtype_expr(node)
+    if dtype is not None:
+        return ResolvedAnnotation(dtype=dtype)
+    if isinstance(node, ast.Constant) and node.value is None:
+        return ResolvedAnnotation(dtype=None)   # 'None' return type → void
+    return ResolvedAnnotation(dtype=None)
+
+
+def resolve_annotation(node: ast.expr) -> Optional[type[DType]]:
+    """Best-effort resolution of a type annotation node to a postyp DType."""
+    return resolve_annotation_info(node).dtype
 
 
 # ---------------------------------------------------------------------------

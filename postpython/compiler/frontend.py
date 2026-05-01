@@ -19,9 +19,10 @@ from .ir import (
     Module, Function, GUFunc, GUFuncSignature,
     BasicBlock, Param, Value,
     Const, BinOpInstr, UnaryOpInstr, ArrayLoad, ArrayStore, Call, Cast, Alloc,
+    AssignValue, Select,
     BinOp, UnaryOp, Return, Branch, CondBranch,
 )
-from .typechecker import resolve_annotation, infer_function, promote
+from .typechecker import resolve_annotation, resolve_annotation_info, infer_function, promote
 
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
@@ -146,37 +147,90 @@ class FunctionLifter:
         self._module = module
         self._gufunc_sig = gufunc_sig
         self._locals: dict[str, Value] = {}  # name → current SSA Value
+        self._array_dims: dict[str, list[Value]] = {}
+        self._implicit_array_return: str | None = None
         self._type_map: dict[int, type[DType]] = {}
         self._errors: list[str] = []
 
     def lift(self) -> Function:
         node = self._node
 
+        parsed_gufunc_sig = parse_gufunc_sig(self._gufunc_sig) if self._gufunc_sig is not None else None
+        core_dim_values: dict[str, Value] = {}
+        core_dim_params: list[Param] = []
+        if parsed_gufunc_sig is not None:
+            for dim_name in parsed_gufunc_sig.core_dims:
+                value = Value(f"pp_dim_{dim_name}", Int64)
+                core_dim_values[dim_name] = value
+                core_dim_params.append(Param(value.name, Int64))
+
         # Resolve parameter types from annotations.
         params: list[Param] = []
         param_types: dict[str, type[DType]] = {}
+        user_arg_index = 0
         for arg in node.args.args:
             if arg.arg in ("self", "cls"):
                 continue
-            dtype = resolve_annotation(arg.annotation) if arg.annotation else Int64
+            annotation = resolve_annotation_info(arg.annotation) if arg.annotation else None
+            dtype = annotation.dtype if annotation else Int64
             if dtype is None:
                 dtype = Int64  # fallback; checker already enforced annotation exists
-            params.append(Param(arg.arg, dtype))
+            is_array = bool(annotation and annotation.is_array)
+            shape = annotation.shape if annotation else AnyShape
+            is_output = False
+            if parsed_gufunc_sig is not None:
+                output_index = user_arg_index - len(parsed_gufunc_sig.inputs)
+                is_output = 0 <= output_index < len(parsed_gufunc_sig.outputs)
+            params.append(Param(arg.arg, dtype, shape, is_array, is_output))
             param_types[arg.arg] = dtype
 
-        return_dtype = resolve_annotation(node.returns) if node.returns else None
+            if is_array and parsed_gufunc_sig is not None:
+                dim_names: list[str] = []
+                if user_arg_index < len(parsed_gufunc_sig.inputs):
+                    dim_names = parsed_gufunc_sig.inputs[user_arg_index]
+                else:
+                    output_index = user_arg_index - len(parsed_gufunc_sig.inputs)
+                    if output_index < len(parsed_gufunc_sig.outputs):
+                        dim_names = parsed_gufunc_sig.outputs[output_index]
+                self._array_dims[arg.arg] = [core_dim_values[d] for d in dim_names]
+            user_arg_index += 1
+
+        return_info = resolve_annotation_info(node.returns) if node.returns else None
+        returns_array = bool(return_info and return_info.is_array)
+        return_dtype = return_info.dtype if return_info else None
+
+        if parsed_gufunc_sig is not None and returns_array:
+            output_index = len(params) - len(parsed_gufunc_sig.inputs)
+            output_dims = (
+                parsed_gufunc_sig.outputs[output_index]
+                if 0 <= output_index < len(parsed_gufunc_sig.outputs)
+                else []
+            )
+            self._implicit_array_return = "__pp_return"
+            output_param = Param(
+                self._implicit_array_return,
+                return_dtype or Float64,
+                return_info.shape if return_info else AnyShape,
+                True,
+                True,
+            )
+            params.append(output_param)
+            self._array_dims[output_param.name] = [core_dim_values[d] for d in output_dims]
+            return_dtype = None
 
         # Build the IR function (or gufunc).
-        if self._gufunc_sig is not None:
-            sig = parse_gufunc_sig(self._gufunc_sig)
+        if parsed_gufunc_sig is not None:
             fn: Function = GUFunc(
                 name=node.name,
                 params=params,
                 return_dtype=return_dtype,
-                gufunc_sig=sig,
+                core_dim_params=core_dim_params,
+                gufunc_sig=parsed_gufunc_sig,
             )
         else:
             fn = Function(name=node.name, params=params, return_dtype=return_dtype)
+
+        self._current_fn = fn
 
         # Run type inference over the body.
         self._type_map, tc_errors = infer_function(node, param_types, return_dtype)
@@ -188,8 +242,10 @@ class FunctionLifter:
 
         # Seed locals with parameter values.
         for p in params:
-            v = Value(p.name, p.dtype)
+            v = Value(p.name, p.dtype, p.shape, p.is_array, p.is_output)
             self._locals[p.name] = v
+        for p in core_dim_params:
+            self._locals[p.name] = Value(p.name, p.dtype)
 
         # Lower the body.
         self._builder = builder
@@ -224,7 +280,10 @@ class FunctionLifter:
     def _lower_return(self, stmt: ast.Return) -> None:
         if stmt.value:
             val = self._lower_expr(stmt.value)
-            self._builder.terminate(Return(val))
+            if val is not None and (val.is_array or val.is_output) and self._current_fn.return_dtype is None:
+                self._builder.terminate(Return(None))
+            else:
+                self._builder.terminate(Return(val))
         else:
             self._builder.terminate(Return(None))
 
@@ -232,17 +291,69 @@ class FunctionLifter:
         if isinstance(stmt, ast.AnnAssign):
             if stmt.value is None:
                 return
+            annotation = resolve_annotation_info(stmt.annotation)
+            if (
+                annotation.is_array
+                and isinstance(stmt.target, ast.Name)
+                and self._try_alias_array_allocation(stmt.target.id, stmt.value)
+            ):
+                return
             val = self._lower_expr(stmt.value)
-            if val and isinstance(stmt.target, ast.Name):
-                self._locals[stmt.target.id] = val
+            if val is None:
+                return
+            if isinstance(stmt.target, ast.Name):
+                self._assign_name(
+                    stmt.target.id,
+                    val,
+                    dtype=annotation.dtype,
+                    shape=annotation.shape,
+                    is_array=annotation.is_array,
+                )
+            elif isinstance(stmt.target, ast.Subscript):
+                self._lower_store(stmt.target, val)
         else:
             val = self._lower_expr(stmt.value)
             if val:
                 for target in stmt.targets:
                     if isinstance(target, ast.Name):
-                        self._locals[target.id] = val
+                        self._assign_name(target.id, val)
+                    elif isinstance(target, ast.Subscript):
+                        self._lower_store(target, val)
+
+    def _assign_name(
+        self,
+        name: str,
+        val: Value,
+        *,
+        dtype: type[DType] | None = None,
+        shape: Shape = AnyShape,
+        is_array: bool = False,
+    ) -> Value:
+        existing = self._locals.get(name)
+        if existing is not None:
+            self._builder.emit(AssignValue(existing, val))
+            return existing
+
+        target = Value(name, dtype or val.dtype, shape, is_array)
+        self._builder.emit(AssignValue(target, val, declare=True))
+        self._locals[name] = target
+        return target
 
     def _lower_aug_assign(self, stmt: ast.AugAssign) -> None:
+        if isinstance(stmt.target, ast.Subscript):
+            left = self._lower_expr(stmt.target)
+            right = self._lower_expr(stmt.value)
+            if left is None or right is None:
+                return
+            op_type = type(stmt.op)
+            if op_type not in _AST_BINOP:
+                return
+            result_dtype = promote(left.dtype, right.dtype)
+            result = self._builder.make_value("aug", result_dtype)
+            self._builder.emit(BinOpInstr(result, _AST_BINOP[op_type], left, right))
+            self._lower_store(stmt.target, result)
+            return
+
         if not isinstance(stmt.target, ast.Name):
             return
         name = stmt.target.id
@@ -256,7 +367,8 @@ class FunctionLifter:
         result_dtype = promote(left.dtype, right.dtype)
         result = self._builder.make_value("aug", result_dtype)
         self._builder.emit(BinOpInstr(result, _AST_BINOP[op_type], left, right))
-        self._locals[name] = result
+        self._builder.emit(AssignValue(left, result))
+        self._locals[name] = left
 
     def _lower_for(self, stmt: ast.For) -> None:
         # Only handle range() loops in the skeleton.
@@ -274,15 +386,15 @@ class FunctionLifter:
         # Resolve range args.
         range_args = stmt.iter.args
         if len(range_args) == 1:
-            start_v = Value("_c0", Int64)
+            start_v = b.make_value("c", Int64)
             b.emit(Const(start_v, 0))
             stop_v  = self._lower_expr(range_args[0]) or Value("_stop", Int64)
-            step_v  = Value("_c1", Int64)
+            step_v  = b.make_value("c", Int64)
             b.emit(Const(step_v, 1))
         elif len(range_args) == 2:
             start_v = self._lower_expr(range_args[0]) or Value("_start", Int64)
             stop_v  = self._lower_expr(range_args[1]) or Value("_stop", Int64)
-            step_v  = Value("_c1", Int64)
+            step_v  = b.make_value("c", Int64)
             b.emit(Const(step_v, 1))
         else:
             start_v = self._lower_expr(range_args[0]) or Value("_start", Int64)
@@ -290,12 +402,15 @@ class FunctionLifter:
             step_v  = self._lower_expr(range_args[2]) or Value("_step", Int64)
 
         idx = Value(loop_var, Int64)
-        b.emit(Const(idx, 0))  # placeholder; real SSA would use phi
+        if len(range_args) == 1:
+            b.emit(Const(idx, 0))
+        else:
+            b.emit(AssignValue(idx, start_v, declare=True))
         self._locals[loop_var] = idx
 
-        cond_bb  = b.new_block("for_cond")
-        body_bb  = b.new_block("for_body")
-        after_bb = b.new_block("for_after")
+        cond_bb  = b.new_block(b.fresh("for_cond"))
+        body_bb  = b.new_block(b.fresh("for_body"))
+        after_bb = b.new_block(b.fresh("for_after"))
 
         b.terminate(Branch(cond_bb.label))
 
@@ -313,16 +428,17 @@ class FunctionLifter:
         if b.current_block.terminator is None:
             next_idx = b.make_value("idx_next", Int64)
             b.emit(BinOpInstr(next_idx, BinOp.ADD, idx, step_v))
-            self._locals[loop_var] = next_idx
+            b.emit(AssignValue(idx, next_idx))
+            self._locals[loop_var] = idx
             b.terminate(Branch(cond_bb.label))
 
         b.set_block(after_bb)
 
     def _lower_while(self, stmt: ast.While) -> None:
         b = self._builder
-        cond_bb  = b.new_block("while_cond")
-        body_bb  = b.new_block("while_body")
-        after_bb = b.new_block("while_after")
+        cond_bb  = b.new_block(b.fresh("while_cond"))
+        body_bb  = b.new_block(b.fresh("while_body"))
+        after_bb = b.new_block(b.fresh("while_after"))
 
         b.terminate(Branch(cond_bb.label))
         b.set_block(cond_bb)
@@ -341,9 +457,9 @@ class FunctionLifter:
     def _lower_if(self, stmt: ast.If) -> None:
         b = self._builder
         cond_val = self._lower_expr(stmt.test)
-        then_bb  = b.new_block("if_then")
-        else_bb  = b.new_block("if_else") if stmt.orelse else None
-        after_bb = b.new_block("if_after")
+        then_bb  = b.new_block(b.fresh("if_then"))
+        else_bb  = b.new_block(b.fresh("if_else")) if stmt.orelse else None
+        after_bb = b.new_block(b.fresh("if_after"))
 
         if cond_val:
             b.terminate(CondBranch(
@@ -402,13 +518,7 @@ class FunctionLifter:
             return result
 
         if isinstance(node, ast.Subscript):
-            arr = self._lower_expr(node.value)
-            idx = self._lower_expr(node.slice)
-            if arr is None or idx is None:
-                return None
-            result = b.make_value("elem", arr.dtype)
-            b.emit(ArrayLoad(result, arr, idx))
-            return result
+            return self._lower_subscript_load(node)
 
         if isinstance(node, ast.Call):
             return self._lower_call(node)
@@ -421,6 +531,17 @@ class FunctionLifter:
                 if right:
                     op_type = type(node.ops[0])
                     b.emit(BinOpInstr(result, _AST_BINOP.get(op_type, BinOp.EQ), left, right))
+            return result
+
+        if isinstance(node, ast.IfExp):
+            cond = self._lower_expr(node.test)
+            if_true = self._lower_expr(node.body)
+            if_false = self._lower_expr(node.orelse)
+            if cond is None or if_true is None or if_false is None:
+                return None
+            result_dtype = promote(if_true.dtype, if_false.dtype)
+            result = b.make_value("select", result_dtype)
+            b.emit(Select(result, cond, if_true, if_false))
             return result
 
         return None
@@ -447,6 +568,9 @@ class FunctionLifter:
         if isinstance(node.func, ast.Name):
             name = node.func.id
             if name == "len" and node.args:
+                known_len = self._resolve_len_arg(node.args[0])
+                if known_len is not None:
+                    return known_len
                 arr = self._lower_expr(node.args[0])
                 result = b.make_value("len", Int64)
                 if arr:
@@ -454,6 +578,14 @@ class FunctionLifter:
                 return result
             if name == "range":
                 return None  # handled by for-loop lowering
+            cast_dtype = resolve_annotation(ast.Name(id=name, ctx=ast.Load()))
+            if cast_dtype is not None and node.args:
+                operand = self._lower_expr(node.args[0])
+                if operand is None:
+                    return None
+                result = b.make_value("cast", cast_dtype)
+                b.emit(Cast(result, operand))
+                return result
         args = [v for a in node.args if (v := self._lower_expr(a)) is not None]
         func_name = (
             node.func.id if isinstance(node.func, ast.Name)
@@ -467,9 +599,143 @@ class FunctionLifter:
                 ret_dtype = promote(ret_dtype, a.dtype)
         else:
             ret_dtype = Float64
+        callee = self._module.get_function(func_name)
+        if callee is not None and callee.core_dim_params:
+            args.extend(self._resolve_call_core_dims(callee, node.args))
         result = b.make_value("ret", ret_dtype)
         b.emit(Call(result, func_name, args))
         return result
+
+    def _resolve_call_core_dims(self, callee: Function, arg_nodes: list[ast.expr]) -> list[Value]:
+        resolved: list[Value] = []
+        seen: set[str] = set()
+        for arg_node in arg_nodes:
+            for dim in self._resolve_array_dims_arg(arg_node):
+                if dim.name in seen:
+                    continue
+                resolved.append(dim)
+                seen.add(dim.name)
+                if len(resolved) == len(callee.core_dim_params):
+                    return resolved
+        return resolved
+
+    def _resolve_array_dims_arg(self, node: ast.expr) -> list[Value]:
+        if isinstance(node, ast.Name):
+            return list(self._array_dims.get(node.id, []))
+        if isinstance(node, ast.Subscript):
+            root = self._subscript_root_and_indices(node)
+            if root is None:
+                return []
+            name, index_nodes = root
+            dims = self._array_dims.get(name, [])
+            return list(dims[len(index_nodes):])
+        return []
+
+    def _try_alias_array_allocation(self, name: str, value: ast.expr) -> bool:
+        if isinstance(value, ast.Name):
+            existing = self._locals.get(value.id)
+            if existing is not None and existing.is_array:
+                self._locals[name] = existing
+                if value.id in self._array_dims:
+                    self._array_dims[name] = self._array_dims[value.id]
+                return True
+
+        if not self._is_array_allocation_expr(value):
+            return False
+
+        if self._implicit_array_return is None:
+            return False
+
+        output = self._locals.get(self._implicit_array_return)
+        if output is None:
+            return False
+
+        self._locals[name] = output
+        if self._implicit_array_return in self._array_dims:
+            self._array_dims[name] = self._array_dims[self._implicit_array_return]
+        return True
+
+    def _is_array_allocation_expr(self, value: ast.expr) -> bool:
+        if isinstance(value, ast.List):
+            return True
+        if isinstance(value, ast.BinOp) and isinstance(value.op, ast.Mult):
+            return isinstance(value.left, ast.List) or isinstance(value.right, ast.List)
+        return False
+
+    def _subscript_root_and_indices(self, node: ast.Subscript) -> tuple[str, list[ast.expr]] | None:
+        indices: list[ast.expr] = []
+        current: ast.expr = node
+        while isinstance(current, ast.Subscript):
+            indices.append(current.slice)
+            current = current.value
+        if not isinstance(current, ast.Name):
+            return None
+        indices.reverse()
+        return current.id, indices
+
+    def _flatten_array_index(self, name: str, index_nodes: list[ast.expr]) -> tuple[Value, Value] | None:
+        arr = self._locals.get(name)
+        if arr is None:
+            return None
+        lowered = [self._lower_expr(index) for index in index_nodes]
+        if any(index is None for index in lowered):
+            return None
+        indices = [index for index in lowered if index is not None]
+        if not indices:
+            return None
+        if len(indices) == 1:
+            return arr, indices[0]
+
+        dims = self._array_dims.get(name, [])
+        if len(dims) < 2:
+            return None
+        stride = dims[1]
+        flat = self._builder.make_value("idx", Int64)
+        self._builder.emit(BinOpInstr(flat, BinOp.MUL, indices[0], stride))
+        for index in indices[1:]:
+            next_flat = self._builder.make_value("idx", Int64)
+            self._builder.emit(BinOpInstr(next_flat, BinOp.ADD, flat, index))
+            flat = next_flat
+        return arr, flat
+
+    def _lower_subscript_load(self, node: ast.Subscript) -> Optional[Value]:
+        root = self._subscript_root_and_indices(node)
+        if root is None:
+            return None
+        name, index_nodes = root
+        flattened = self._flatten_array_index(name, index_nodes)
+        if flattened is None:
+            return None
+        arr, idx = flattened
+        result = self._builder.make_value("elem", arr.dtype)
+        self._builder.emit(ArrayLoad(result, arr, idx))
+        return result
+
+    def _lower_store(self, target: ast.Subscript, val: Value) -> None:
+        root = self._subscript_root_and_indices(target)
+        if root is None:
+            return
+        name, index_nodes = root
+        flattened = self._flatten_array_index(name, index_nodes)
+        if flattened is None:
+            return
+        arr, idx = flattened
+        self._builder.emit(ArrayStore(arr, idx, val))
+
+    def _resolve_len_arg(self, node: ast.expr) -> Optional[Value]:
+        if isinstance(node, ast.Name):
+            dims = self._array_dims.get(node.id)
+            if dims:
+                return dims[0]
+        if isinstance(node, ast.Subscript):
+            root = self._subscript_root_and_indices(node)
+            if root is None:
+                return None
+            name, index_nodes = root
+            dims = self._array_dims.get(name)
+            if dims and len(index_nodes) < len(dims):
+                return dims[len(index_nodes)]
+        return None
 
 
 # ---------------------------------------------------------------------------
