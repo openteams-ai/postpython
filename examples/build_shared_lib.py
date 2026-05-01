@@ -181,7 +181,7 @@ import importlib.util, types
 
 spec = importlib.util.spec_from_file_location("gaussian", SOURCE)
 assert spec and spec.loader
-pp_mod: types.ModuleType = importlib.util.load_module_from_spec(spec, spec)
+pp_mod: types.ModuleType = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pp_mod)  # type: ignore[union-attr]
 
 xs = np.linspace(-3, 3, 7)
