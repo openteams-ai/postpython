@@ -39,10 +39,14 @@ class Value:
     dtype: type[DType]
     # For array values, shape carries dimension info.
     shape: Shape = field(default_factory=lambda: AnyShape)
+    is_array: bool = False
+    is_output: bool = False
 
     def __repr__(self) -> str:
         shape_str = f", {self.shape}" if self.shape is not AnyShape else ""
-        return f"%{self.name}: {self.dtype.__name__}{shape_str}"
+        array_str = "[]" if self.is_array else ""
+        output_str = "&" if self.is_output else ""
+        return f"%{self.name}: {output_str}{self.dtype.__name__}{array_str}{shape_str}"
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +133,23 @@ class Cast:
 
 
 @dataclass
+class AssignValue:
+    """target = value, optionally declaring target first."""
+    target: Value
+    value: Value
+    declare: bool = False
+
+
+@dataclass
+class Select:
+    """result = cond ? if_true : if_false"""
+    result: Value
+    cond: Value
+    if_true: Value
+    if_false: Value
+
+
+@dataclass
 class Alloc:
     """result = alloc(dtype, length)  — allocate an array on the POST Python heap"""
     result: Value
@@ -155,7 +176,7 @@ class SetField:
 Instruction = Union[
     Const, BinOpInstr, UnaryOpInstr,
     ArrayLoad, ArrayStore,
-    Call, Cast, Alloc,
+    Call, Cast, AssignValue, Select, Alloc,
     GetField, SetField,
 ]
 
@@ -215,6 +236,8 @@ class Param:
     name: str
     dtype: type[DType]
     shape: Shape = field(default_factory=lambda: AnyShape)
+    is_array: bool = False
+    is_output: bool = False
 
 
 @dataclass
@@ -224,6 +247,7 @@ class Function:
     params: list[Param]
     return_dtype: Optional[type[DType]]   # None → void
     return_shape: Shape = field(default_factory=lambda: AnyShape)
+    core_dim_params: list[Param] = field(default_factory=list)
     blocks: list[BasicBlock] = field(default_factory=list)
 
     @property

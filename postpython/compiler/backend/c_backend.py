@@ -17,7 +17,7 @@ from ..ir import (
     Module, Function, GUFunc, GUFuncSignature,
     BasicBlock, Value, Param,
     Const, BinOpInstr, UnaryOpInstr, ArrayLoad, ArrayStore,
-    Call, Cast, Alloc, Return, Branch, CondBranch,
+    Call, Cast, AssignValue, Select, Alloc, Return, Branch, CondBranch,
     BinOp, UnaryOp,
     Instruction, Terminator,
 )
@@ -63,6 +63,30 @@ def c_type(dtype: type[DType]) -> str:
 
 def c_type_ptr(dtype: type[DType]) -> str:
     return c_type(dtype) + "*"
+
+
+def c_value_type(v: Value | Param) -> str:
+    return c_type_ptr(v.dtype) if (
+        getattr(v, "is_array", False) or getattr(v, "is_output", False)
+    ) else c_type(v.dtype)
+
+
+_RESERVED_C_SYMBOLS: frozenset[str] = frozenset({
+    "acos", "asin", "atan", "atan2",
+    "ceil", "cos", "cosh",
+    "erf", "erfc", "exp", "exp2", "expm1",
+    "fabs", "floor", "fma", "fmod", "frexp",
+    "gamma", "hypot", "j0", "j1",
+    "ldexp", "lgamma", "log", "log10", "log1p", "log2",
+    "modf", "pow",
+    "sin", "sinh", "sqrt",
+    "tan", "tanh", "tgamma", "trunc",
+    "y0", "y1",
+})
+
+
+def c_symbol(name: str) -> str:
+    return f"__pp_{name}" if name in _RESERVED_C_SYMBOLS else name
 
 
 # ---------------------------------------------------------------------------
@@ -122,13 +146,16 @@ def _emit_binop(op: BinOp) -> str:
     }.get(op, "/*?*/")
 
 
-def emit_instruction(instr: Instruction, em: CEmitter) -> None:
+def emit_instruction(instr: Instruction, em: CEmitter, symbol_map: dict[str, str] | None = None) -> None:
+    symbol_map = symbol_map or {}
     if isinstance(instr, Const):
         em.line(f"{c_type(instr.result.dtype)} {_emit_value(instr.result)} = {_emit_const_value(instr.value)};")
 
     elif isinstance(instr, BinOpInstr):
         if instr.op == BinOp.POW:
             em.line(f"{c_type(instr.result.dtype)} {_emit_value(instr.result)} = pow({_emit_value(instr.left)}, {_emit_value(instr.right)});")
+        elif instr.op == BinOp.MOD and instr.result.dtype.kind == "f":
+            em.line(f"{c_type(instr.result.dtype)} {_emit_value(instr.result)} = fmod({_emit_value(instr.left)}, {_emit_value(instr.right)});")
         else:
             em.line(f"{c_type(instr.result.dtype)} {_emit_value(instr.result)} = {_emit_value(instr.left)} {_emit_binop(instr.op)} {_emit_value(instr.right)};")
 
@@ -149,12 +176,26 @@ def emit_instruction(instr: Instruction, em: CEmitter) -> None:
             # for dynamic arrays it's stored alongside the pointer.
             em.line(f"int64_t {_emit_value(instr.result)} = __pp_array_len({args_str});")
         elif instr.result:
-            em.line(f"{c_type(instr.result.dtype)} {_emit_value(instr.result)} = {instr.func}({args_str});")
+            em.line(f"{c_type(instr.result.dtype)} {_emit_value(instr.result)} = {symbol_map.get(instr.func, instr.func)}({args_str});")
         else:
-            em.line(f"{instr.func}({args_str});")
+            em.line(f"{symbol_map.get(instr.func, instr.func)}({args_str});")
 
     elif isinstance(instr, Cast):
         em.line(f"{c_type(instr.result.dtype)} {_emit_value(instr.result)} = ({c_type(instr.result.dtype)}){_emit_value(instr.operand)};")
+
+    elif isinstance(instr, AssignValue):
+        if instr.declare:
+            em.line(f"{c_value_type(instr.target)} {_emit_value(instr.target)} = {_emit_value(instr.value)};")
+        elif instr.target.is_output and not instr.target.is_array:
+            em.line(f"*{_emit_value(instr.target)} = {_emit_value(instr.value)};")
+        else:
+            em.line(f"{_emit_value(instr.target)} = {_emit_value(instr.value)};")
+
+    elif isinstance(instr, Select):
+        em.line(
+            f"{c_type(instr.result.dtype)} {_emit_value(instr.result)} = "
+            f"{_emit_value(instr.cond)} ? {_emit_value(instr.if_true)} : {_emit_value(instr.if_false)};"
+        )
 
     elif isinstance(instr, Alloc):
         em.line(f"{c_type_ptr(instr.result.dtype)} {_emit_value(instr.result)} = malloc({_emit_value(instr.length)} * sizeof({c_type(instr.result.dtype)}));")
@@ -179,20 +220,18 @@ def emit_terminator(term: Terminator, em: CEmitter) -> None:
 def emit_function_signature(fn: Function, em: CEmitter, *, declaration: bool = False) -> None:
     ret = c_type(fn.return_dtype) if fn.return_dtype else "void"
     params = ", ".join(
-        f"{c_type(p.dtype)}* _{p.name}" if _is_array_param(p) else f"{c_type(p.dtype)} _{p.name}"
-        for p in fn.params
+        f"{c_value_type(p)} _{p.name}"
+        for p in [*fn.params, *fn.core_dim_params]
     )
     semi = ";" if declaration else ""
-    em.line(f"{ret} {fn.name}({params}){semi}")
+    em.line(f"{ret} {c_symbol(fn.name)}({params}){semi}")
 
 
 def _is_array_param(p: Param) -> bool:
-    # In a real compiler this would check if p.dtype is an array type.
-    # Skeleton: check by name convention.
-    return False
+    return p.is_array
 
 
-def emit_function(fn: Function, em: CEmitter) -> None:
+def emit_function(fn: Function, em: CEmitter, symbol_map: dict[str, str] | None = None) -> None:
     emit_function_signature(fn, em)
     em.line("{")
     em.indent()
@@ -200,7 +239,7 @@ def emit_function(fn: Function, em: CEmitter) -> None:
         em.line(f"{bb.label}:;")
         em.indent()
         for instr in bb.instructions:
-            emit_instruction(instr, em)
+            emit_instruction(instr, em, symbol_map)
         if bb.terminator:
             emit_terminator(bb.terminator, em)
         em.dedent()
@@ -212,21 +251,22 @@ def emit_function(fn: Function, em: CEmitter) -> None:
 # GUFunc emission (NumPy ufunc protocol)
 # ---------------------------------------------------------------------------
 
-def emit_gufunc(fn: GUFunc, em: CEmitter) -> None:
+def emit_gufunc(fn: GUFunc, em: CEmitter, symbol_map: dict[str, str] | None = None) -> None:
     """Emit the inner scalar function and the NumPy ufunc wrapper."""
     sig = fn.gufunc_sig
     if sig is None:
-        emit_function(fn, em)
+        emit_function(fn, em, symbol_map)
         return
 
     # 1. Emit the inner (scalar / core-array) function.
-    emit_function(fn, em)
+    emit_function(fn, em, symbol_map)
     em.line()
 
     # 2. Emit the NumPy gufunc wrapper.
     n_in  = len(sig.inputs)
     n_out = len(sig.outputs)
-    out_dtype = fn.return_dtype  # dtype written to output pointer(s); None = void
+    output_params = fn.params[n_in:n_in + n_out]
+    out_dtype = fn.return_dtype  # dtype written to returned scalar output(s); None = output buffers
 
     em.line(f"/* NumPy generalized ufunc wrapper for {fn.name} */")
     em.line(f"/* Signature: {sig} */")
@@ -240,38 +280,54 @@ def emit_gufunc(fn: GUFunc, em: CEmitter) -> None:
     em.line(") {")
     em.indent()
 
-    em.line("npy_intp n = dimensions[0];  /* outer broadcast loop length */")
+    em.line("npy_intp _pp_outer_n = dimensions[0];  /* outer broadcast loop length */")
 
     # Core dimension sizes.
     for i, dim_name in enumerate(sig.core_dims):
         if dim_name:
-            em.line(f"npy_intp {dim_name} = dimensions[{i + 1}];")
+            em.line(f"int64_t _pp_dim_{dim_name} = (int64_t)dimensions[{i + 1}];")
 
     em.line()
 
-    # Input arg pointers — one per function parameter.
-    for i, p in enumerate(fn.params):
+    # Input arg pointers.
+    for i, p in enumerate(fn.params[:n_in]):
         em.line(f"{c_type_ptr(p.dtype)} arg{i} = ({c_type_ptr(p.dtype)})args[{i}];")
         em.line(f"npy_intp step{i} = steps[{i}] / sizeof({c_type(p.dtype)});")
 
     # Output arg pointer(s) — come after inputs in the args/steps arrays.
-    if out_dtype is not None:
-        for j in range(n_out):
-            k = n_in + j
-            em.line(f"{c_type_ptr(out_dtype)} arg{k} = ({c_type_ptr(out_dtype)})args[{k}];")
-            em.line(f"npy_intp step{k} = steps[{k}] / sizeof({c_type(out_dtype)});")
+    for j in range(n_out):
+        k = n_in + j
+        dtype = out_dtype if out_dtype is not None else output_params[j].dtype
+        em.line(f"{c_type_ptr(dtype)} arg{k} = ({c_type_ptr(dtype)})args[{k}];")
+        em.line(f"npy_intp step{k} = steps[{k}] / sizeof({c_type(dtype)});")
 
     em.line()
-    em.line("for (npy_intp _i = 0; _i < n; _i++) {")
+    em.line("for (npy_intp _i = 0; _i < _pp_outer_n; _i++) {")
     em.indent()
 
-    # Call the inner scalar function with dereferenced input scalars.
-    call_args = ", ".join(f"arg{i}[_i * step{i}]" for i in range(n_in))
+    call_parts: list[str] = []
+    for i, p in enumerate(fn.params[:n_in]):
+        if p.is_array or sig.inputs[i]:
+            call_parts.append(f"arg{i} + _i * step{i}")
+        else:
+            call_parts.append(f"arg{i}[_i * step{i}]")
+
+    if out_dtype is None:
+        for j, p in enumerate(output_params):
+            k = n_in + j
+            if p.is_array or sig.outputs[j]:
+                call_parts.append(f"arg{k} + _i * step{k}")
+            else:
+                call_parts.append(f"&arg{k}[_i * step{k}]")
+
+    call_parts.extend(_emit_value(Value(p.name, p.dtype)) for p in fn.core_dim_params)
+    call_args = ", ".join(call_parts)
+
     if out_dtype is not None and n_out > 0:
         # Capture the return value and write it to the output pointer.
-        em.line(f"arg{n_in}[_i * step{n_in}] = {fn.name}({call_args});")
+        em.line(f"arg{n_in}[_i * step{n_in}] = {c_symbol(fn.name)}({call_args});")
     else:
-        em.line(f"{fn.name}({call_args});")
+        em.line(f"{c_symbol(fn.name)}({call_args});")
 
     em.dedent()
     em.line("}")  # for loop
@@ -320,6 +376,7 @@ def emit_module(module: Module) -> str:
     """Emit a complete C99 translation unit for *module*."""
     em = CEmitter()
     em.write(_PREAMBLE)
+    symbol_map = {fn.name: c_symbol(fn.name) for fn in module.functions}
 
     # Forward declarations.
     for fn in module.functions:
@@ -329,9 +386,9 @@ def emit_module(module: Module) -> str:
     # Definitions.
     for fn in module.functions:
         if isinstance(fn, GUFunc):
-            emit_gufunc(fn, em)
+            emit_gufunc(fn, em, symbol_map)
         else:
-            emit_function(fn, em)
+            emit_function(fn, em, symbol_map)
         em.line()
 
     return em.getvalue()
