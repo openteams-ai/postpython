@@ -19,7 +19,9 @@ from ..checker import check_source, Violation
 from .ir import (
     Module, Function, GUFunc, GUFuncSignature,
     BasicBlock, Param, Value,
-    Const, BinOpInstr, UnaryOpInstr, ArrayLoad, ArrayStore, Call, Cast, Alloc,
+    Const, BinOpInstr, UnaryOpInstr,
+    ArrayLoad, ArrayStore, ArrayDim, ArrayStride,
+    Call, Cast, Alloc,
     AssignValue, Select,
     BinOp, UnaryOp, Return, Branch, CondBranch,
 )
@@ -868,6 +870,10 @@ class FunctionLifter:
             dim = arr.shape.dims[axis]
             if dim is not None:
                 return self._const_int_value(dim)
+        if arr.is_array:
+            result = self._builder.make_value("dim", Int64)
+            self._builder.emit(ArrayDim(result, arr, axis))
+            return result
         return None
 
     def _mul_values(self, values: list[Value]) -> Value:
@@ -878,6 +884,22 @@ class FunctionLifter:
             next_result = self._builder.make_value("stride", Int64)
             self._builder.emit(BinOpInstr(next_result, BinOp.MUL, result, value))
             result = next_result
+        return result
+
+    def _scale_stride_to_bytes(self, stride: Value, arr: Value, node: ast.AST) -> Optional[Value]:
+        itemsize = getattr(arr.dtype, "itemsize", 0)
+        if itemsize <= 0:
+            self._compiler_error(
+                node,
+                "PP900",
+                f"array dtype `{arr.dtype.__name__}` does not have a fixed byte size",
+            )
+            return None
+        if itemsize == 1:
+            return stride
+        itemsize_value = self._const_int_value(itemsize, "itemsize")
+        result = self._builder.make_value("stride", Int64)
+        self._builder.emit(BinOpInstr(result, BinOp.MUL, stride, itemsize_value))
         return result
 
     def _array_stride_values(
@@ -898,35 +920,37 @@ class FunctionLifter:
                     f"but {ndim} index value(s) were used",
                 )
                 return None
-            if any(stride is None for stride in layout.strides[:ndim]):
-                self._compiler_error(
-                    node,
-                    "PP900",
-                    "dynamic array strides require runtime stride metadata, "
-                    "which this compiler does not lower yet",
-                )
-                return None
-            return [
-                self._const_int_value(stride, "stride")
-                for stride in layout.strides[:ndim]
-                if stride is not None
-            ]
+            result: list[Value] = []
+            for axis, stride in enumerate(layout.strides[:ndim]):
+                if stride is None:
+                    stride_value = self._builder.make_value("stride", Int64)
+                    self._builder.emit(ArrayStride(stride_value, arr, axis))
+                    result.append(stride_value)
+                else:
+                    result.append(self._const_int_value(stride, "stride"))
+            return result
 
         dim_values = [self._dim_value_for_axis(name, arr, axis) for axis in range(ndim)]
-        if any(dim is None for dim in dim_values):
-            self._compiler_error(
-                node,
-                "PP900",
-                "dynamic multidimensional array indexing requires runtime "
-                "shape/stride metadata, which this compiler does not lower yet",
-            )
-            return None
         dims = [dim for dim in dim_values if dim is not None]
 
         if layout == COrder:
-            return [self._mul_values(dims[axis + 1:]) for axis in range(ndim)]
+            strides = [self._mul_values(dims[axis + 1:]) for axis in range(ndim)]
+            byte_strides: list[Value] = []
+            for stride in strides:
+                byte_stride = self._scale_stride_to_bytes(stride, arr, node)
+                if byte_stride is None:
+                    return None
+                byte_strides.append(byte_stride)
+            return byte_strides
         if layout == FOrder:
-            return [self._mul_values(dims[:axis]) for axis in range(ndim)]
+            strides = [self._mul_values(dims[:axis]) for axis in range(ndim)]
+            byte_strides = []
+            for stride in strides:
+                byte_stride = self._scale_stride_to_bytes(stride, arr, node)
+                if byte_stride is None:
+                    return None
+                byte_strides.append(byte_stride)
+            return byte_strides
 
         self._compiler_error(
             node,
@@ -945,8 +969,6 @@ class FunctionLifter:
         indices = [index for index in lowered if index is not None]
         if not indices:
             return None
-        if len(indices) == 1:
-            return arr, indices[0]
 
         strides = self._array_stride_values(name, arr, len(indices), index_nodes[0])
         if strides is None:

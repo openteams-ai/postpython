@@ -146,9 +146,9 @@ class TestArray:
         assert A.layout == FOrder
 
     def test_array_with_explicit_strides(self):
-        strides = Strides[None, 1]
+        strides = Strides[None, 8]
         A = Array[Float64, Shape[None, None], strides]
-        assert strides.strides == (None, 1)
+        assert strides.strides == (None, 8)
         assert A.layout == strides
 
     def test_convenience_alias(self):

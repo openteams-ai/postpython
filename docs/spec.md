@@ -156,8 +156,8 @@ def batch_norm(x: Array[Float64, Shape[None, 128]]) -> Array[Float64, Shape[None
 # Fortran-contiguous matrix
 def col_major_sum(x: Array[Float64, Shape[3, 3], FOrder]) -> Float64: ...
 
-# Explicitly strided 2-D view, strides are measured in elements
-def view_sum(x: Array[Float64, Shape[None, None], Strides[None, 1]]) -> Float64: ...
+# Explicitly strided 2-D view, strides are measured in bytes
+def view_sum(x: Array[Float64, Shape[None, None], Strides[None, 8]]) -> Float64: ...
 ```
 
 `Shape` dimensions:
@@ -172,7 +172,7 @@ The POST Array profile should distinguish logical arrays from physical layout:
 - `Array[DType, Shape]` denotes an owned or borrowed homogeneous array value with a known element dtype and optional shape constraints.
 - The default physical layout is C-contiguous row-major storage (`COrder`).
 - `FOrder` denotes Fortran-contiguous column-major storage.
-- `Strides[...]` denotes explicit per-axis strides.  Strides are specified in elements, not bytes, unless an ABI explicitly states otherwise.  `None` in a stride position means the stride is dynamic and supplied at runtime.
+- `Strides[...]` denotes explicit per-axis strides.  Strides are specified in bytes, following NumPy's convention.  `None` in a stride position means the stride is dynamic and supplied at runtime.
 - C-order and Fortran-order arrays are special cases of strided arrays with statically derivable strides.
 - Negative strides are permitted for borrowed views when the implementation can preserve bounds and lifetime safety; owned arrays should use non-negative compact strides unless explicitly constructed otherwise.
 - Slices and views borrow storage by default and carry shape, stride, offset, and mutability metadata.  Operations that require compact storage must either prove contiguity or make an explicit copy.
@@ -486,7 +486,7 @@ Where:
 - `steps[i]` is the stride in bytes for argument `i`.
 - `args[i]` points to the first element of argument `i`.
 
-The compiler emits the outer broadcast loop and maps the inner body to the user function.
+The compiler emits the outer broadcast loop and maps each array argument to the POST Array ABI view described in Section 9.2 before calling the user kernel.  This preserves shape, stride, and offset metadata inside the native kernel instead of passing only a raw data pointer.
 
 ### 8.5 Interpreted Mode
 
@@ -510,7 +510,39 @@ Portable POST Python code should make CPython boundary crossings explicit.  A co
 
 Public symbols are top-level functions, dataclasses, type aliases, and constants not prefixed with `_`.  A future package ABI will define stable symbol names, version metadata, and cross-module incremental compilation behavior.
 
-### 9.2 Outputs
+### 9.2 Native Array ABI
+
+The POST Array ABI represents each array value as a view with explicit shape and stride metadata.  The reference C ABI uses the following logical layout:
+
+```c
+typedef struct __pp_array {
+    void *data;
+    int64_t ndim;
+    int64_t const *shape;
+    int64_t const *strides;  /* byte strides */
+    int64_t offset_bytes;
+} __pp_array;
+```
+
+Fields:
+
+- `data` points to the first byte of the underlying allocation or exported buffer.
+- `ndim` is the runtime rank.
+- `shape[i]` is the logical extent of axis `i`.
+- `strides[i]` is the byte stride for axis `i`, matching NumPy's `ndarray.strides` convention.
+- `offset_bytes` is the byte offset from `data` to the first logical element in the view.
+
+C-contiguous and Fortran-contiguous arrays are represented as regular `__pp_array` values with derived byte strides.  Slices and other views may share the same `data` pointer while changing `shape`, `strides`, and `offset_bytes`.
+
+Typed element access is computed as:
+
+```c
+*(T *)((char *)array.data + array.offset_bytes + byte_index)
+```
+
+where `byte_index` is produced from the logical index tuple and the view's byte strides.  Implementations may use equivalent target-specific ABI layouts, but they must preserve the same logical fields at ABI boundaries.
+
+### 9.3 Outputs
 
 | Mode              | Flag           | Output                              |
 |-------------------|----------------|-------------------------------------|
@@ -519,15 +551,15 @@ Public symbols are top-level functions, dataclasses, type aliases, and constants
 | CPython extension | `--ext-module` | `<name>.cpython-<tag>.so`           |
 | Executable        | (default)      | native binary, entry point = `main` |
 
-### 9.3 Entry Point
+### 9.4 Entry Point
 
 When compiling to an executable, the compiler looks for a top-level `def main() -> Int:` function as the entry point.  Its return value becomes the process exit code.
 
-### 9.4 Backends
+### 9.5 Backends
 
 The reference compiler emits C99 as its intermediate output, then invokes the system C compiler (`cc`/`clang`/`gcc`).  Alternate backends (LLVM IR, WebAssembly) may be added without changing the language specification.
 
-### 9.5 Debug vs. Release Builds
+### 9.6 Debug vs. Release Builds
 
 | Feature                    | Debug (`-g`) | Release (`-O2`) |
 |----------------------------|-------------|-----------------|

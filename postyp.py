@@ -231,8 +231,8 @@ class _ContiguousOrder(ArrayLayout):
 class Strides(ArrayLayout):
     """Compile-time stride descriptor for Array.
 
-    Strides are measured in elements. ``None`` means the stride is dynamic
-    and must be supplied by the runtime array metadata.
+    Strides are measured in bytes, following NumPy's convention. ``None``
+    means the stride is dynamic and must be supplied by runtime array metadata.
     """
 
     strides: tuple[int | None, ...]

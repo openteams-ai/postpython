@@ -105,7 +105,7 @@ class UnaryOpInstr:
 
 @dataclass
 class ArrayLoad:
-    """result = array[index]  — element access"""
+    """result = array[index]  — index is a byte offset from the view origin"""
     result: Value
     array: Value
     index: Value
@@ -113,10 +113,26 @@ class ArrayLoad:
 
 @dataclass
 class ArrayStore:
-    """array[index] = value  — element write (no result)"""
+    """array[index] = value  — index is a byte offset from the view origin"""
     array: Value
     index: Value
     value: Value
+
+
+@dataclass
+class ArrayDim:
+    """result = array.shape[axis]"""
+    result: Value
+    array: Value
+    axis: int
+
+
+@dataclass
+class ArrayStride:
+    """result = array.strides[axis] in bytes"""
+    result: Value
+    array: Value
+    axis: int
 
 
 @dataclass
@@ -177,7 +193,7 @@ class SetField:
 # Union of all non-terminator instruction types.
 Instruction = Union[
     Const, BinOpInstr, UnaryOpInstr,
-    ArrayLoad, ArrayStore,
+    ArrayLoad, ArrayStore, ArrayDim, ArrayStride,
     Call, Cast, AssignValue, Select, Alloc,
     GetField, SetField,
 ]

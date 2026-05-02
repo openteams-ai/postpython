@@ -16,7 +16,8 @@ from typing import Optional
 from ..ir import (
     Module, Function, GUFunc, GUFuncSignature,
     BasicBlock, Value, Param,
-    Const, BinOpInstr, UnaryOpInstr, ArrayLoad, ArrayStore,
+    Const, BinOpInstr, UnaryOpInstr,
+    ArrayLoad, ArrayStore, ArrayDim, ArrayStride,
     Call, Cast, AssignValue, Select, Alloc, Return, Branch, CondBranch,
     BinOp, UnaryOp,
     Instruction, Terminator,
@@ -30,6 +31,7 @@ from postyp import (
     UInt8, UInt16, UInt32, UInt64,
     Float16, Float32, Float64, Complex64, Complex128,
     Str, Bytes,
+    COrder, FOrder, Strides,
 )
 
 
@@ -66,9 +68,11 @@ def c_type_ptr(dtype: type[DType]) -> str:
 
 
 def c_value_type(v: Value | Param) -> str:
-    return c_type_ptr(v.dtype) if (
-        getattr(v, "is_array", False) or getattr(v, "is_output", False)
-    ) else c_type(v.dtype)
+    if getattr(v, "is_array", False):
+        return "__pp_array*"
+    if getattr(v, "is_output", False):
+        return c_type_ptr(v.dtype)
+    return c_type(v.dtype)
 
 
 _RESERVED_C_SYMBOLS: frozenset[str] = frozenset({
@@ -164,10 +168,28 @@ def emit_instruction(instr: Instruction, em: CEmitter, symbol_map: dict[str, str
         em.line(f"{c_type(instr.result.dtype)} {_emit_value(instr.result)} = {prefix}{_emit_value(instr.operand)};")
 
     elif isinstance(instr, ArrayLoad):
-        em.line(f"{c_type(instr.result.dtype)} {_emit_value(instr.result)} = {_emit_value(instr.array)}[{_emit_value(instr.index)}];")
+        em.line(
+            f"{c_type(instr.result.dtype)} {_emit_value(instr.result)} = "
+            f"__pp_array_at({_emit_value(instr.array)}, {c_type(instr.result.dtype)}, {_emit_value(instr.index)});"
+        )
 
     elif isinstance(instr, ArrayStore):
-        em.line(f"{_emit_value(instr.array)}[{_emit_value(instr.index)}] = {_emit_value(instr.value)};")
+        em.line(
+            f"__pp_array_at({_emit_value(instr.array)}, {c_type(instr.value.dtype)}, {_emit_value(instr.index)}) = "
+            f"{_emit_value(instr.value)};"
+        )
+
+    elif isinstance(instr, ArrayDim):
+        em.line(
+            f"int64_t {_emit_value(instr.result)} = "
+            f"__pp_array_dim({_emit_value(instr.array)}, {instr.axis});"
+        )
+
+    elif isinstance(instr, ArrayStride):
+        em.line(
+            f"int64_t {_emit_value(instr.result)} = "
+            f"__pp_array_stride({_emit_value(instr.array)}, {instr.axis});"
+        )
 
     elif isinstance(instr, Call):
         args_str = ", ".join(_emit_value(a) for a in instr.args)
@@ -231,6 +253,47 @@ def _is_array_param(p: Param) -> bool:
     return p.is_array
 
 
+def _c_array_literal(name: str, values: list[str]) -> str:
+    if not values:
+        return f"int64_t {name}[1] = {{0}};"
+    return f"int64_t {name}[{len(values)}] = {{{', '.join(values)}}};"
+
+
+def _byte_stride_expr(element_factors: list[str], dtype: type[DType]) -> str:
+    return " * ".join([*element_factors, f"sizeof({c_type(dtype)})"])
+
+
+def _gufunc_stride_exprs(p: Param, dims: list[str]) -> list[str]:
+    """Return byte-stride expressions for a gufunc core view."""
+    ndim = len(dims)
+    layout = p.layout
+
+    if isinstance(layout, Strides) and len(layout.strides) >= ndim:
+        result: list[str] = []
+        for stride in layout.strides[:ndim]:
+            if stride is None:
+                # The simplified reference gufunc ABI cannot recover dynamic
+                # core strides from NumPy's steps array yet, so keep the view
+                # compact for now.
+                result.append(f"sizeof({c_type(p.dtype)})")
+            else:
+                result.append(str(stride))
+        return result
+
+    if layout == FOrder:
+        result = []
+        for axis in range(ndim):
+            factors = [f"_pp_dim_{dim}" for dim in dims[:axis]]
+            result.append(_byte_stride_expr(factors, p.dtype))
+        return result
+
+    result = []
+    for axis in range(ndim):
+        factors = [f"_pp_dim_{dim}" for dim in dims[axis + 1:]]
+        result.append(_byte_stride_expr(factors, p.dtype))
+    return result
+
+
 def emit_function(fn: Function, em: CEmitter, symbol_map: dict[str, str] | None = None) -> None:
     emit_function_signature(fn, em)
     em.line("{")
@@ -291,15 +354,15 @@ def emit_gufunc(fn: GUFunc, em: CEmitter, symbol_map: dict[str, str] | None = No
 
     # Input arg pointers.
     for i, p in enumerate(fn.params[:n_in]):
-        em.line(f"{c_type_ptr(p.dtype)} arg{i} = ({c_type_ptr(p.dtype)})args[{i}];")
-        em.line(f"npy_intp step{i} = steps[{i}] / sizeof({c_type(p.dtype)});")
+        em.line(f"char *arg{i} = args[{i}];")
+        em.line(f"npy_intp step{i} = steps[{i}];")
 
     # Output arg pointer(s) — come after inputs in the args/steps arrays.
     for j in range(n_out):
         k = n_in + j
         dtype = out_dtype if out_dtype is not None else output_params[j].dtype
-        em.line(f"{c_type_ptr(dtype)} arg{k} = ({c_type_ptr(dtype)})args[{k}];")
-        em.line(f"npy_intp step{k} = steps[{k}] / sizeof({c_type(dtype)});")
+        em.line(f"char *arg{k} = args[{k}];")
+        em.line(f"npy_intp step{k} = steps[{k}];")
 
     em.line()
     em.line("for (npy_intp _i = 0; _i < _pp_outer_n; _i++) {")
@@ -308,24 +371,47 @@ def emit_gufunc(fn: GUFunc, em: CEmitter, symbol_map: dict[str, str] | None = No
     call_parts: list[str] = []
     for i, p in enumerate(fn.params[:n_in]):
         if p.is_array or sig.inputs[i]:
-            call_parts.append(f"arg{i} + _i * step{i}")
+            dims = sig.inputs[i]
+            shape_name = f"_pp_shape_{i}"
+            strides_name = f"_pp_strides_{i}"
+            view_name = f"_pp_arg_{i}"
+            em.line(_c_array_literal(shape_name, [f"_pp_dim_{dim}" for dim in dims]))
+            em.line(_c_array_literal(strides_name, _gufunc_stride_exprs(p, dims)))
+            em.line(
+                f"__pp_array {view_name} = "
+                f"{{arg{i} + _i * step{i}, {len(dims)}, {shape_name}, {strides_name}, 0}};"
+            )
+            call_parts.append(f"&{view_name}")
         else:
-            call_parts.append(f"arg{i}[_i * step{i}]")
+            call_parts.append(f"*(({c_type(p.dtype)} *)(arg{i} + _i * step{i}))")
 
     if out_dtype is None:
         for j, p in enumerate(output_params):
             k = n_in + j
             if p.is_array or sig.outputs[j]:
-                call_parts.append(f"arg{k} + _i * step{k}")
+                dims = sig.outputs[j]
+                shape_name = f"_pp_shape_{k}"
+                strides_name = f"_pp_strides_{k}"
+                view_name = f"_pp_arg_{k}"
+                em.line(_c_array_literal(shape_name, [f"_pp_dim_{dim}" for dim in dims]))
+                em.line(_c_array_literal(strides_name, _gufunc_stride_exprs(p, dims)))
+                em.line(
+                    f"__pp_array {view_name} = "
+                    f"{{arg{k} + _i * step{k}, {len(dims)}, {shape_name}, {strides_name}, 0}};"
+                )
+                call_parts.append(f"&{view_name}")
             else:
-                call_parts.append(f"&arg{k}[_i * step{k}]")
+                call_parts.append(f"({c_type_ptr(p.dtype)})(arg{k} + _i * step{k})")
 
     call_parts.extend(_emit_value(Value(p.name, p.dtype)) for p in fn.core_dim_params)
     call_args = ", ".join(call_parts)
 
     if out_dtype is not None and n_out > 0:
         # Capture the return value and write it to the output pointer.
-        em.line(f"arg{n_in}[_i * step{n_in}] = {c_symbol(fn.name)}({call_args});")
+        em.line(
+            f"*(({c_type(out_dtype)} *)(arg{n_in} + _i * step{n_in})) = "
+            f"{c_symbol(fn.name)}({call_args});"
+        )
     else:
         em.line(f"{c_symbol(fn.name)}({call_args});")
 
@@ -367,7 +453,18 @@ _PREAMBLE = """\
 #endif
 
 /* POST Python runtime helpers */
-#define __pp_array_len(a) ((a)->length)
+typedef struct __pp_array {
+    void *data;
+    int64_t ndim;
+    int64_t const *shape;
+    int64_t const *strides;  /* byte strides, NumPy-compatible */
+    int64_t offset_bytes;
+} __pp_array;
+
+#define __pp_array_dim(a, axis) ((a)->shape[(axis)])
+#define __pp_array_stride(a, axis) ((a)->strides[(axis)])
+#define __pp_array_len(a) __pp_array_dim((a), 0)
+#define __pp_array_at(a, type, byte_index) (*(type *)((char *)((a)->data) + (a)->offset_bytes + (byte_index)))
 
 """
 
