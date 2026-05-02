@@ -45,6 +45,8 @@ class ResolvedAnnotation:
     dtype: Optional[type[DType]]
     shape: Shape = AnyShape
     is_array: bool = False
+    is_none: bool = False
+    is_valid: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +123,8 @@ def resolve_annotation_info(node: ast.expr) -> ResolvedAnnotation:
         if is_array:
             parts = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
             dtype = _resolve_dtype_expr(parts[0]) if parts else None
+            if dtype is None:
+                return ResolvedAnnotation(dtype=None, is_array=True, is_valid=False)
             shape = _resolve_shape_expr(parts[1]) if len(parts) > 1 else AnyShape
             return ResolvedAnnotation(dtype=dtype, shape=shape, is_array=True)
 
@@ -128,8 +132,8 @@ def resolve_annotation_info(node: ast.expr) -> ResolvedAnnotation:
     if dtype is not None:
         return ResolvedAnnotation(dtype=dtype)
     if isinstance(node, ast.Constant) and node.value is None:
-        return ResolvedAnnotation(dtype=None)   # 'None' return type → void
-    return ResolvedAnnotation(dtype=None)
+        return ResolvedAnnotation(dtype=None, is_none=True)   # 'None' return type → void
+    return ResolvedAnnotation(dtype=None, is_valid=False)
 
 
 def resolve_annotation(node: ast.expr) -> Optional[type[DType]]:

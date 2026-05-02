@@ -22,7 +22,13 @@ from .ir import (
     AssignValue, Select,
     BinOp, UnaryOp, Return, Branch, CondBranch,
 )
-from .typechecker import resolve_annotation, resolve_annotation_info, infer_function, promote
+from .typechecker import (
+    TypeError_PP,
+    resolve_annotation,
+    resolve_annotation_info,
+    infer_function,
+    promote,
+)
 
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
@@ -150,7 +156,23 @@ class FunctionLifter:
         self._array_dims: dict[str, list[Value]] = {}
         self._implicit_array_return: str | None = None
         self._type_map: dict[int, type[DType]] = {}
-        self._errors: list[str] = []
+        self._errors: list[TypeError_PP] = []
+
+    @property
+    def errors(self) -> list[TypeError_PP]:
+        return self._errors
+
+    def _annotation_error(
+        self,
+        node: ast.AST,
+        message: str,
+    ) -> None:
+        self._errors.append(TypeError_PP(
+            code="PP100",
+            message=message,
+            lineno=getattr(node, "lineno", 0),
+            col_offset=getattr(node, "col_offset", 0),
+        ))
 
     def lift(self) -> Function:
         node = self._node
@@ -172,9 +194,17 @@ class FunctionLifter:
             if arg.arg in ("self", "cls"):
                 continue
             annotation = resolve_annotation_info(arg.annotation) if arg.annotation else None
-            dtype = annotation.dtype if annotation else Int64
-            if dtype is None:
-                dtype = Int64  # fallback; checker already enforced annotation exists
+            if annotation is not None and not annotation.is_valid:
+                self._annotation_error(
+                    arg,
+                    f"unsupported annotation for parameter `{arg.arg}` in `{node.name}`",
+                )
+            if annotation is not None and annotation.is_none:
+                self._annotation_error(
+                    arg,
+                    f"`None` is not a valid parameter annotation for `{arg.arg}` in `{node.name}`",
+                )
+            dtype = annotation.dtype if annotation and annotation.dtype is not None else Int64
             is_array = bool(annotation and annotation.is_array)
             shape = annotation.shape if annotation else AnyShape
             is_output = False
@@ -196,8 +226,17 @@ class FunctionLifter:
             user_arg_index += 1
 
         return_info = resolve_annotation_info(node.returns) if node.returns else None
+        if return_info is not None and not return_info.is_valid:
+            self._annotation_error(
+                node,
+                f"unsupported return annotation in `{node.name}`",
+            )
         returns_array = bool(return_info and return_info.is_array)
-        return_dtype = return_info.dtype if return_info else None
+        return_dtype = (
+            None
+            if return_info is None or return_info.is_none
+            else return_info.dtype
+        )
 
         if parsed_gufunc_sig is not None and returns_array:
             output_index = len(params) - len(parsed_gufunc_sig.inputs)
@@ -234,6 +273,7 @@ class FunctionLifter:
 
         # Run type inference over the body.
         self._type_map, tc_errors = infer_function(node, param_types, return_dtype)
+        self._errors.extend(tc_errors)
 
         # Build IR.
         builder = Builder(fn)
@@ -781,6 +821,7 @@ def compile_source(source: str, filename: str = "<unknown>") -> tuple[Module, li
     # 3. Build module IR.
     stem = Path(filename).stem if filename != "<unknown>" else "module"
     module = Module(name=stem)
+    errors = []
 
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef):
@@ -800,8 +841,9 @@ def compile_source(source: str, filename: str = "<unknown>") -> tuple[Module, li
             lifter = FunctionLifter(node, module, gufunc_sig)
             fn = lifter.lift()
             module.add_function(fn)
+            errors.extend(lifter.errors)
 
-    return module, []
+    return module, errors
 
 
 def compile_file(path: str | Path) -> tuple[Module, list]:
