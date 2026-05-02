@@ -157,6 +157,7 @@ class FunctionLifter:
         self._implicit_array_return: str | None = None
         self._type_map: dict[int, type[DType]] = {}
         self._errors: list[TypeError_PP] = []
+        self._loop_stack: list[tuple[str, str]] = []
 
     @property
     def errors(self) -> list[TypeError_PP]:
@@ -167,12 +168,27 @@ class FunctionLifter:
         node: ast.AST,
         message: str,
     ) -> None:
+        self._compiler_error(node, "PP100", message)
+
+    def _compiler_error(
+        self,
+        node: ast.AST,
+        code: str,
+        message: str,
+    ) -> None:
         self._errors.append(TypeError_PP(
-            code="PP100",
+            code=code,
             message=message,
             lineno=getattr(node, "lineno", 0),
             col_offset=getattr(node, "col_offset", 0),
         ))
+
+    def _unsupported_feature_error(self, node: ast.AST, feature: str) -> None:
+        self._compiler_error(
+            node,
+            "PP101",
+            f"{feature} is valid POST Python but is not lowered by this compiler yet",
+        )
 
     def lift(self) -> Function:
         node = self._node
@@ -289,8 +305,7 @@ class FunctionLifter:
 
         # Lower the body.
         self._builder = builder
-        for stmt in node.body:
-            self._lower_stmt(stmt)
+        self._lower_stmt_list(node.body)
 
         # Ensure the last block has a terminator.
         if builder.current_block.terminator is None:
@@ -300,9 +315,19 @@ class FunctionLifter:
 
     # ---- statement lowering -----------------------------------------------
 
+    def _lower_stmt_list(self, stmts: list[ast.stmt]) -> None:
+        for stmt in stmts:
+            if self._builder.current_block.terminator is not None:
+                break
+            self._lower_stmt(stmt)
+
     def _lower_stmt(self, stmt: ast.stmt) -> None:
         if isinstance(stmt, ast.Return):
             self._lower_return(stmt)
+        elif isinstance(stmt, ast.Break):
+            self._lower_break(stmt)
+        elif isinstance(stmt, ast.Continue):
+            self._lower_continue(stmt)
         elif isinstance(stmt, (ast.Assign, ast.AnnAssign)):
             self._lower_assign(stmt)
         elif isinstance(stmt, ast.AugAssign):
@@ -315,7 +340,19 @@ class FunctionLifter:
             self._lower_if(stmt)
         elif isinstance(stmt, ast.Expr):
             self._lower_expr(stmt.value)
-        # Other stmts (pass, assert) are no-ops in the IR.
+        elif isinstance(stmt, (ast.Pass, ast.Assert)):
+            return
+        elif isinstance(stmt, ast.With):
+            self._unsupported_feature_error(stmt, "`with` statements")
+        elif isinstance(stmt, ast.Try):
+            self._unsupported_feature_error(stmt, "`try` statements")
+        elif hasattr(ast, "Match") and isinstance(stmt, ast.Match):
+            self._unsupported_feature_error(stmt, "`match` statements")
+        else:
+            self._unsupported_feature_error(
+                stmt,
+                f"`{type(stmt).__name__}` statements",
+            )
 
     def _lower_return(self, stmt: ast.Return) -> None:
         if stmt.value:
@@ -326,6 +363,20 @@ class FunctionLifter:
                 self._builder.terminate(Return(val))
         else:
             self._builder.terminate(Return(None))
+
+    def _lower_break(self, stmt: ast.Break) -> None:
+        if not self._loop_stack:
+            self._compiler_error(stmt, "PP101", "`break` used outside a loop")
+            return
+        break_label, _ = self._loop_stack[-1]
+        self._builder.terminate(Branch(break_label))
+
+    def _lower_continue(self, stmt: ast.Continue) -> None:
+        if not self._loop_stack:
+            self._compiler_error(stmt, "PP101", "`continue` used outside a loop")
+            return
+        _, continue_label = self._loop_stack[-1]
+        self._builder.terminate(Branch(continue_label))
 
     def _lower_assign(self, stmt: ast.Assign | ast.AnnAssign) -> None:
         if isinstance(stmt, ast.AnnAssign):
@@ -418,6 +469,10 @@ class FunctionLifter:
             and stmt.iter.func.id == "range"
             and isinstance(stmt.target, ast.Name)
         ):
+            self._unsupported_feature_error(
+                stmt,
+                "`for` loops over non-range iterables",
+            )
             return
 
         b = self._builder
@@ -450,6 +505,7 @@ class FunctionLifter:
 
         cond_bb  = b.new_block(b.fresh("for_cond"))
         body_bb  = b.new_block(b.fresh("for_body"))
+        step_bb  = b.new_block(b.fresh("for_step"))
         after_bb = b.new_block(b.fresh("for_after"))
 
         b.terminate(Branch(cond_bb.label))
@@ -462,9 +518,14 @@ class FunctionLifter:
 
         # Body block.
         b.set_block(body_bb)
-        for s in stmt.body:
-            self._lower_stmt(s)
-        # increment
+        self._loop_stack.append((after_bb.label, step_bb.label))
+        self._lower_stmt_list(stmt.body)
+        self._loop_stack.pop()
+        if b.current_block.terminator is None:
+            b.terminate(Branch(step_bb.label))
+
+        # Increment block.
+        b.set_block(step_bb)
         if b.current_block.terminator is None:
             next_idx = b.make_value("idx_next", Int64)
             b.emit(BinOpInstr(next_idx, BinOp.ADD, idx, step_v))
@@ -487,8 +548,9 @@ class FunctionLifter:
             b.terminate(CondBranch(cond_val, body_bb.label, after_bb.label))
 
         b.set_block(body_bb)
-        for s in stmt.body:
-            self._lower_stmt(s)
+        self._loop_stack.append((after_bb.label, cond_bb.label))
+        self._lower_stmt_list(stmt.body)
+        self._loop_stack.pop()
         if b.current_block.terminator is None:
             b.terminate(Branch(cond_bb.label))
 
@@ -509,15 +571,13 @@ class FunctionLifter:
             ))
 
         b.set_block(then_bb)
-        for s in stmt.body:
-            self._lower_stmt(s)
+        self._lower_stmt_list(stmt.body)
         if b.current_block.terminator is None:
             b.terminate(Branch(after_bb.label))
 
         if else_bb:
             b.set_block(else_bb)
-            for s in stmt.orelse:
-                self._lower_stmt(s)
+            self._lower_stmt_list(stmt.orelse)
             if b.current_block.terminator is None:
                 b.terminate(Branch(after_bb.label))
 
@@ -583,6 +643,10 @@ class FunctionLifter:
             result = b.make_value("select", result_dtype)
             b.emit(Select(result, cond, if_true, if_false))
             return result
+
+        if isinstance(node, (ast.ListComp, ast.DictComp, ast.SetComp)):
+            self._unsupported_feature_error(node, "comprehensions")
+            return None
 
         return None
 
