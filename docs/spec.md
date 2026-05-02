@@ -1,6 +1,6 @@
 # POST Python Language Specification
 
-**Version:** 0.1 (draft)
+**Version:** 0.2 (draft)
 **Status:** Work in progress
 
 ---
@@ -9,16 +9,29 @@
 
 POST Python (Performance Optimized Statically Typed Python) is a defined subset of the Python language with mandatory type annotations that enables ahead-of-time (AOT) compilation to native executables and shared libraries.  A POST Python source file is valid Python; it can be run under the standard CPython interpreter without modification.  A conforming compiler additionally translates it to native code without requiring the Python runtime.
 
-### 1.1 Goals
+### 1.1 Design Contract
 
-1. **Standardize** a compilable Python subset so that tools such as Cython, mypyc, Numba, and taichi-lang can implement a common target.
+POST Python is designed to be:
+
+- **Syntactically Python** — POST Python source files are valid `.py` files and should remain usable in interpreted compatibility mode.
+- **Statically typed at boundaries** — function and method boundaries are fully annotated; local types may be inferred.
+- **Native-code first** — compiled output uses native memory layouts and does not depend on the CPython object model unless explicitly crossing the CPython boundary.
+- **Array and dataframe first** — arrays, series, and dataframes are part of the standard language model, not optional foreign-library objects.
+- **Smaller than Python** — dynamic language features that prevent portable AOT compilation are excluded.
+- **Extensible by design** — accelerator, SIMD, dataframe, and domain-specific compilers can extend the base language through typed, compiler-visible APIs.
+
+Where CPython behavior conflicts with fixed-width native types, deterministic memory management, or explicitly specified POST Python semantics, this specification governs compiled behavior.  Interpreted compatibility mode should remain as close to CPython behavior as practical while preserving the same type and subset guarantees.
+
+### 1.2 Goals
+
+1. **Standardize** a compilable Python subset so that tools such as Cython, mypyc, Numba, Codon, Pythran, taichi-lang, and related projects can implement a common target.
 2. **Enable AOT compilation** to standalone executables and shared libraries (including CPython extension modules) without the Python runtime.
-3. **Be the go-to language for extension modules**, replacing typical uses of C, Rust, Go, or Zig for that purpose.
-4. **Provide built-in array and dataframe types** grounded in the array-api (data-apis.org) and narwhals standards, making numerical and data-intensive code first-class.
+3. **Be the go-to language for extension modules**, replacing typical uses of C, Rust, Go, or Zig when Python syntax and ecosystem compatibility are desired.
+4. **Provide built-in array and dataframe types** grounded in the array-api, Arrow-like columnar memory, and narwhals-style backend-neutral semantics, making numerical and data-intensive code first-class.
 5. **Support generalized ufuncs** as the primary abstraction for data-parallel computation.
 6. **Serve as a base layer for DSLs** — GPU kernels, SIMD kernels, distributed compute — by keeping the subset minimal and the type system extensible.
 
-### 1.2 Non-Goals
+### 1.3 Non-Goals
 
 - Replacing CPython for general scripting.
 - Supporting the full Python object model in compiled output.
@@ -28,17 +41,37 @@ POST Python (Performance Optimized Statically Typed Python) is a defined subset 
 
 ## 2. Conformance
 
-A **POST Python source file** is a `.py` file that passes the POST Python checker (Section 5) with zero violations and where every function boundary carries complete type annotations (Section 6).
+A **POST Python source file** is a `.py` file that:
+
+1. Is parseable by the CPython `ast` module with `type_comments=True`.
+2. Passes the POST Python structural checker (Section 5) with zero structural violations.
+3. Carries complete type annotations at every function boundary (Section 6).
+4. Uses only annotations, operations, and standard-library features defined by this specification or by an explicitly enabled POST Python extension.
+
+Conformance is intentionally modular.  A compiler may claim conformance to one or more named profiles:
+
+| Profile | Required support |
+|---------|------------------|
+| **POST Core** | Scalar types, functions, modules, structs/dataclasses, control flow, type checking, and native object/shared-library/executable output. |
+| **POST Array** | POST Core plus `Array[DType, Shape]`, array indexing, array allocation, shape checking, array iteration, and array-compatible scalar math. |
+| **POST DataFrame** | POST Core plus `Series`, `DataFrame`, `LazyFrame`, typed schemas, and the standard dataframe algebra defined by this specification. |
+| **POST Gufunc ABI** | POST Array plus generalized ufunc signature checking, interpreted-mode behavior, and the native gufunc ABI. |
+| **POST CPython Extension** | POST Core plus CPython extension-module output and CPython heap-boundary semantics. |
+| **POST Accelerator Extension** | A named extension profile for GPU, SIMD, distributed, or other domain-specific lowering.  Such profiles must state their additional types, decorators, memory spaces, and fallback behavior. |
+
+A compiler that does not implement an optional profile must reject code requiring that profile with a clear diagnostic rather than silently changing semantics.
 
 A **conforming compiler** is a tool that:
-1. Accepts POST Python source files.
-2. Produces native object code, shared libraries, or executables with semantics identical to running the source under CPython (within the bounds of numeric precision as specified in Section 4).
-3. Does not require the CPython runtime to be present in the final binary (except for extension module builds, which link `libpython` by definition).
-4. Implements the generalized ufunc ABI described in Section 8.
+1. Accepts POST Python source files for the conformance profile(s) it claims.
+2. Produces native object code, shared libraries, executables, or CPython extension modules with semantics defined by this specification.
+3. Does not require the CPython runtime to be present in the final binary except in CPython extension builds or when explicitly crossing the CPython heap boundary.
+4. Rejects unsupported valid POST Python features with an implementation-support diagnostic, rather than accepting and dropping or rewriting behavior.
 
-A **conforming interpreter** is a tool that accepts POST Python source files and executes them with CPython-compatible semantics, providing the same type-checking guarantees as a conforming compiler at runtime.
+A **conforming interpreter** is a tool that accepts POST Python source files and executes them with CPython-compatible behavior where possible, while enforcing the same POST Python type, subset, and profile guarantees as a conforming compiler.
 
-Existing tools (Cython, mypyc, Numba, taichi-lang, etc.) are encouraged to implement this standard and claim conformance for the subset they support.
+Existing tools (Cython, mypyc, Numba, Codon, Pythran, taichi-lang, etc.) are encouraged to implement this standard and claim conformance for the profiles they support.
+
+The prose specification is normative.  The reference checker, reference compiler, and conformance test suite are executable aids for implementors.  When the reference implementation and this specification disagree, the specification governs unless the specification is amended.
 
 ---
 
@@ -47,7 +80,8 @@ Existing tools (Cython, mypyc, Numba, taichi-lang, etc.) are encouraged to imple
 - Encoding: UTF-8.
 - File extension: `.py` (same as Python; no new extension is introduced).
 - A POST Python file must be parseable by the CPython `ast` module with `type_comments=True`.
-- The first-party checker (`postpython-check`) is the normative conformance gate.
+- The first-party checker (`postpython-check`) is the normative structural checker for the reference implementation.  Full conformance also requires type, semantic, memory, and profile-specific validation.
+- Top-level executable statements are implementation-defined in v0.1 except for imports, type aliases, constant definitions, class definitions, and function definitions.  Portable POST Python packages should put executable logic behind typed functions.
 
 ---
 
@@ -89,12 +123,26 @@ Python built-in types map to POST Python types as follows:
 
 A conforming compiler must respect IEEE 754 semantics for all floating-point operations.
 
+### 4.1.1 Numeric Semantics
+
+POST Python numeric types are fixed-width native scalar types.  They do not inherit Python's arbitrary-precision `int` semantics in compiled mode.
+
+Unless otherwise specified by a future profile:
+
+- Signed and unsigned integer arithmetic is performed at the declared width.
+- Debug builds must diagnose integer overflow where practical; release builds may use the target platform's native overflow behavior, but compilers must document whether they wrap, trap, or assume no overflow for optimization.
+- Floating-point operations follow IEEE 754 for the declared width.  Compilers must not enable transformations that violate required IEEE behavior unless the user explicitly enables a non-conforming fast-math mode.
+- `NaN`, infinities, and signed zero follow IEEE comparison and arithmetic behavior.
+- Integer division, floor division, and remainder must be specified by the POST Python arithmetic rules for the operand dtypes.  Until those rules are finalized, portable code should avoid relying on edge cases involving negative integer `//` and `%`.
+- Numeric casts must be explicit when they may lose precision, change signedness, or narrow width.  Debug builds should diagnose out-of-range narrowing casts where practical.
+- Scalar promotion rules are part of the type system and must be consistent across scalar expressions, array expressions, and gufunc kernels.
+
 ### 4.2 Array Type
 
-The `Array[DType]` and `Array[DType, Shape[...]]` types represent N-dimensional homogeneous arrays, following the array-api standard.
+The `Array[DType]`, `Array[DType, Shape[...]]`, and layout-qualified array types represent N-dimensional homogeneous arrays, following the array-api standard and NumPy-compatible layout concepts.
 
 ```python
-from postyp import Array, Float64, Shape
+from postyp import Array, Float64, Shape, COrder, FOrder, Strides
 
 # 1-D array of unknown length
 def scale(a: Array[Float64], factor: Float64) -> Array[Float64]: ...
@@ -104,6 +152,12 @@ def det3(m: Array[Float64, Shape[3, 3]]) -> Float64: ...
 
 # Mixed: dynamic first dim, fixed second
 def batch_norm(x: Array[Float64, Shape[None, 128]]) -> Array[Float64, Shape[None, 128]]: ...
+
+# Fortran-contiguous matrix
+def col_major_sum(x: Array[Float64, Shape[3, 3], FOrder]) -> Float64: ...
+
+# Explicitly strided 2-D view, strides are measured in elements
+def view_sum(x: Array[Float64, Shape[None, None], Strides[None, 1]]) -> Float64: ...
 ```
 
 `Shape` dimensions:
@@ -111,11 +165,25 @@ def batch_norm(x: Array[Float64, Shape[None, 128]]) -> Array[Float64, Shape[None
 - `None` — dynamic size; checked at runtime in debug builds.
 - `Shape[...]` (or `AnyShape`) — fully dynamic rank; no static shape information.
 
-Array memory layout defaults to row-major (C order).  Compilers may support additional layout annotations in future versions.
+Array memory layout defaults to row-major C order when no layout qualifier is supplied.
+
+The POST Array profile should distinguish logical arrays from physical layout:
+
+- `Array[DType, Shape]` denotes an owned or borrowed homogeneous array value with a known element dtype and optional shape constraints.
+- The default physical layout is C-contiguous row-major storage (`COrder`).
+- `FOrder` denotes Fortran-contiguous column-major storage.
+- `Strides[...]` denotes explicit per-axis strides.  Strides are specified in elements, not bytes, unless an ABI explicitly states otherwise.  `None` in a stride position means the stride is dynamic and supplied at runtime.
+- C-order and Fortran-order arrays are special cases of strided arrays with statically derivable strides.
+- Negative strides are permitted for borrowed views when the implementation can preserve bounds and lifetime safety; owned arrays should use non-negative compact strides unless explicitly constructed otherwise.
+- Slices and views borrow storage by default and carry shape, stride, offset, and mutability metadata.  Operations that require compact storage must either prove contiguity or make an explicit copy.
+- Implementations must expose enough runtime metadata for dynamic-rank or dynamic-stride arrays to support shape checks, bounds checks, and correct element-address calculation.
+- Bounds checks are required in debug builds and configurable in release builds.
+- Mutation requires write access to the array value under the ownership model in Section 7.
+- Broadcasting outside gufuncs is reserved for a future array-expression standard.
 
 ### 4.3 DataFrame and Series Types
 
-`DataFrame`, `LazyFrame`, and `Series` wrap the narwhals abstraction layer, making POST Python dataframe code backend-agnostic (pandas, polars, modin, etc.).
+`DataFrame`, `LazyFrame`, and `Series` define a typed logical dataframe model inspired by narwhals and backed in compiled mode by a native columnar runtime with Arrow-like behavior.  Interpreted compatibility mode may delegate to narwhals-compatible backends such as pandas, polars, or modin, but compiled POST DataFrame code must not require pandas or another interpreted dataframe engine at runtime.
 
 ```python
 from postyp import DataFrame, Series, Float64, Schema
@@ -126,6 +194,28 @@ def vwap(trades: Trades) -> Float64: ...
 
 def prices(trades: Trades) -> Series[Float64]: ...
 ```
+
+The default POST DataFrame runtime is columnar:
+
+- Each `Series[DType]` is a homogeneous logical column with a validity bitmap for nullable values when nullability is enabled.
+- A `DataFrame` is an ordered mapping of UTF-8 column names to `Series` values of equal length.
+- Physical layout should be Arrow-compatible where practical: contiguous buffers, optional offsets for variable-width values, optional validity bitmaps, and zero-copy interchange when layout constraints are met.
+- Implementations may use alternate physical layouts internally if observable semantics and the standard interchange ABI are preserved.
+
+The POST DataFrame profile should define a portable dataframe algebra.  The initial standard library should prioritize:
+
+- projection and column selection
+- row filtering
+- computed columns
+- scalar and element-wise expressions
+- aggregation
+- `group_by` aggregation
+- equi-join operations
+- sorting
+- null propagation and null-aware comparisons
+- schema-preserving and schema-transforming operations
+
+`LazyFrame` represents an optimizable logical query plan.  A conforming POST DataFrame compiler may lower `LazyFrame` operations to native loops, vectorized kernels, SQL-like plans, Arrow compute kernels, accelerator kernels, or other equivalent execution strategies.
 
 ### 4.4 Aggregate Types
 
@@ -297,7 +387,7 @@ The reference compiler enforces single-writer as a runtime assertion in debug bu
 
 ### 7.5 CPython Heap Boundary
 
-POST Python code frequently needs to read CPython-owned objects — for example, a narwhals DataFrame backed by pandas, or any Python object passed in from an extension module caller.  The rules are:
+POST Python code may need to read CPython-owned objects — for example, an interpreted-mode dataframe backend, an object passed in from a CPython extension caller, or a Python object explicitly accessed through a borrow handle.  The rules are:
 
 **Reading CPython objects (POST Python → CPython direction)**
 
@@ -410,6 +500,16 @@ When a POST Python source file is run under the standard interpreter (not compil
 
 A POST Python translation unit is a single `.py` source file.  A **package** is a directory of translation units with an `__init__.py`.  The compiler processes one translation unit at a time and produces one object file (`.o`) per translation unit.
 
+Module imports have three roles:
+
+- **Compile-time imports** provide POST Python types, decorators, constants, and functions visible to the compiler.
+- **POST module imports** refer to other POST Python translation units that are type-checked and linked into the output artifact.
+- **CPython boundary imports** refer to Python modules used only in interpreted mode or through explicit CPython heap-boundary handles.
+
+Portable POST Python code should make CPython boundary crossings explicit.  A compiler must not silently compile a call to an arbitrary imported Python function as native POST code unless that function is available as a checked POST translation unit or as a declared foreign function.
+
+Public symbols are top-level functions, dataclasses, type aliases, and constants not prefixed with `_`.  A future package ABI will define stable symbol names, version metadata, and cross-module incremental compilation behavior.
+
 ### 9.2 Outputs
 
 | Mode              | Flag           | Output                              |
@@ -451,23 +551,59 @@ The standard library does not include I/O, networking, or threading primitives; 
 
 ---
 
-## 11. Implementation Guidance
+## 11. Extension Model
+
+POST Python is intended to support multiple compiler implementations and domain-specific extensions such as Triton-like GPU kernels, Helion-like tensor kernels, SIMD kernels, distributed compute, and dataframe query engines.
+
+An extension profile may add:
+
+- decorators
+- types
+- address spaces or memory layouts
+- intrinsic functions
+- compiler passes
+- backend-specific ABIs
+
+Every extension profile must specify:
+
+- the conformance profile(s) it depends on
+- how extension syntax remains valid Python
+- whether interpreted compatibility mode is required and what fallback it uses
+- which operations are portable across implementations and which are implementation-defined
+- how extension values cross into POST Core, POST Array, POST DataFrame, and CPython boundary code
+
+Extensions must not change the meaning of POST Core programs unless explicitly enabled by the user.
+
+---
+
+## 12. Implementation Guidance
 
 This section is non-normative.
 
 - Implementors targeting CPython extension output should follow the [CPython limited API](https://docs.python.org/3/c-api/stable.html) to maximize ABI stability.
 - The `postyp` module is the canonical source of type metadata; compilers should import and introspect it rather than duplicating dtype definitions.
-- The reference compiler (this repository) serves as the normative executable specification.  When the prose spec and the reference compiler disagree, file a bug against the spec.
-- Implementors of existing tools (Cython, mypyc, Numba) implementing this standard should document which violation codes they enforce and which parts of the gufunc ABI they support.
+- The reference compiler (this repository) serves as an executable implementation aid and conformance-test target.  The prose specification is normative.
+- Implementors of existing tools (Cython, mypyc, Numba, Codon, Pythran, taichi-lang, etc.) implementing this standard should document which conformance profiles, violation codes, and ABIs they support.
 
 ---
 
 ## Appendix A: Violation Code Registry
 
-See Section 5.2 for the full table.  Codes PP000–PP099 are reserved for structural/syntax violations.  PP100–PP199 are reserved for type errors.  PP200–PP299 are reserved for memory model violations (future).
+See Section 5.2 for the current structural table.  Diagnostic ranges are reserved as follows:
+
+| Range | Category |
+|-------|----------|
+| PP000–PP099 | Structural and syntax violations |
+| PP100–PP199 | Type and annotation errors |
+| PP200–PP299 | Ownership and memory model violations |
+| PP300–PP399 | Array, shape, and broadcasting errors |
+| PP400–PP499 | DataFrame, Series, schema, and query-plan errors |
+| PP500–PP599 | ABI, module, linking, and build errors |
+| PP900–PP999 | Implementation-defined or unsupported valid POST Python features |
 
 ## Appendix B: Revision History
 
 | Version | Date       | Notes                       |
 |---------|------------|-----------------------------|
+| 0.2     | 2026-05-02 | Modular conformance profiles, native dataframe runtime guidance, and expanded array layout semantics |
 | 0.1     | 2026-04-30 | Initial draft                |
