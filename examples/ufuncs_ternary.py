@@ -7,19 +7,19 @@ These cover the less common but important ufunc shapes:
     frexp — mantissa and exponent).
 
 NumPy supports multiple outputs via the `out` tuple argument; the POST
-Python gufunc compiler handles this by treating trailing output args as
+Python ufunc compiler handles this by treating trailing output args as
 write-through pointer parameters in the emitted C.
 """
 
-from postyp import Float64, Int64, Bool
-from postpython.gufunc import gufunc
+from postyp import Array, Float64, Int64, Bool
+from postpython import guvectorize, vectorize
 
 
 # ---------------------------------------------------------------------------
 # Three-input, one-output: (),(),()->()
 # ---------------------------------------------------------------------------
 
-@gufunc("(),(),()->()")
+@vectorize
 def fma(a: Float64, b: Float64, c: Float64) -> Float64:
     """Fused multiply-add: a*b + c
 
@@ -30,7 +30,7 @@ def fma(a: Float64, b: Float64, c: Float64) -> Float64:
     return a * b + c
 
 
-@gufunc("(),(),()->()")
+@vectorize
 def clip(x: Float64, lo: Float64, hi: Float64) -> Float64:
     """Clamp x to [lo, hi]  (mirrors np.clip element-wise)."""
     if x < lo:
@@ -40,13 +40,13 @@ def clip(x: Float64, lo: Float64, hi: Float64) -> Float64:
     return x
 
 
-@gufunc("(),(),()->()")
+@vectorize
 def lerp(a: Float64, b: Float64, t: Float64) -> Float64:
     """Linear interpolation: a + t*(b - a), t ∈ [0, 1]."""
     return a + t * (b - a)
 
 
-@gufunc("(),(),()->()")
+@vectorize
 def where_select(condition: Bool, x: Float64, y: Float64) -> Float64:
     """Element-wise conditional select: condition ? x : y
 
@@ -57,7 +57,7 @@ def where_select(condition: Bool, x: Float64, y: Float64) -> Float64:
     return y
 
 
-@gufunc("(),(),()->()")
+@vectorize
 def muladd_clamp(x: Float64, scale: Float64, bias: Float64) -> Float64:
     """(x * scale + bias) clamped to [0, 1].
 
@@ -71,7 +71,7 @@ def muladd_clamp(x: Float64, scale: Float64, bias: Float64) -> Float64:
     return result
 
 
-@gufunc("(),(),()->()")
+@vectorize
 def smooth_step(edge0: Float64, edge1: Float64, x: Float64) -> Float64:
     """Hermite interpolation between edge0 and edge1 (GLSL smoothstep).
 
@@ -89,8 +89,8 @@ def smooth_step(edge0: Float64, edge1: Float64, x: Float64) -> Float64:
 # Two-output ufuncs — signature ()->(),()
 # ---------------------------------------------------------------------------
 
-@gufunc("()->(),() ")
-def modf(x: Float64, int_part: Float64, frac_part: Float64) -> None:
+@guvectorize([], "()->(),()")
+def modf(x: Float64, int_part: Array[Float64], frac_part: Array[Float64]) -> None:
     """Split x into its integer and fractional parts (mirrors np.modf).
 
     Both parts carry the sign of x.
@@ -102,20 +102,20 @@ def modf(x: Float64, int_part: Float64, frac_part: Float64) -> None:
         ipart = x - (x % 1.0)
         if x % 1.0 != 0.0:
             ipart = ipart - 1.0
-    int_part = ipart
-    frac_part = x - ipart
+    int_part[0] = ipart
+    frac_part[0] = x - ipart
 
 
-@gufunc("()->(),() ")
-def frexp(x: Float64, mantissa: Float64, exponent: Int64) -> None:
+@guvectorize([], "()->(),()")
+def frexp(x: Float64, mantissa: Array[Float64], exponent: Array[Int64]) -> None:
     """Decompose x = mantissa * 2**exponent, mantissa ∈ [0.5, 1.0).
 
     Mirrors np.frexp.  In compiled output this lowers to frexp() from
     libm.
     """
     if x == 0.0:
-        mantissa = 0.0
-        exponent = 0
+        mantissa[0] = 0.0
+        exponent[0] = 0
         return
     # Iterative extraction (reference; compiler replaces with frexp()).
     m: Float64 = x
@@ -126,8 +126,8 @@ def frexp(x: Float64, mantissa: Float64, exponent: Int64) -> None:
     while m < 0.5:
         m = m * 2.0
         e = e - 1
-    mantissa = m
-    exponent = e
+    mantissa[0] = m
+    exponent[0] = e
 
 
 # ---------------------------------------------------------------------------

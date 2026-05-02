@@ -1,8 +1,8 @@
 """ppspecial — POST Python reimplementation of scipy.special.
 
-Each function is a @gufunc, written in fully-typed POST Python.  The POST
-Python compiler lowers them to native shared-library code; in interpreted
-mode they run via the pure-Python broadcast loop.
+Each function is a @vectorize kernel, written in fully-typed POST Python.
+The POST Python compiler lowers them to native shared-library code; in
+interpreted mode they run via the pure-Python broadcast loop.
 
 Function families implemented
 ------------------------------

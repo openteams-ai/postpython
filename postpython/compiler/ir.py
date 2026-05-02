@@ -8,7 +8,7 @@ Terminology
 -----------
 * Module   — a translation unit (one .py file).
 * Function — a typed function definition with a list of BasicBlocks.
-* GUFunc   — a Function annotated with a gufunc signature.
+* UFunc   — a Function annotated with a ufunc layout signature.
 * BasicBlock — a straight-line sequence of Instructions ending in a Terminator.
 * Value    — a named, typed SSA value.
 * Instruction — a single operation that produces at most one Value.
@@ -245,7 +245,7 @@ class BasicBlock:
 
 
 # ---------------------------------------------------------------------------
-# Function and GUFunc
+# Function and UFunc
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -280,8 +280,8 @@ class Function:
 
 
 @dataclass
-class GUFuncSignature:
-    """Parsed gufunc signature, e.g. '(m,k),(k,n)->(m,n)'."""
+class UFuncSignature:
+    """Parsed ufunc layout signature, e.g. '(m,k),(k,n)->(m,n)'."""
     inputs: list[list[str]]   # list of core-dim name lists, one per input
     outputs: list[list[str]]  # list of core-dim name lists, one per output
 
@@ -301,9 +301,9 @@ class GUFuncSignature:
 
 
 @dataclass
-class GUFunc(Function):
-    """A gufunc — a Function with a broadcast signature."""
-    gufunc_sig: Optional[GUFuncSignature] = None
+class UFunc(Function):
+    """A vectorized function with a broadcast layout signature."""
+    ufunc_sig: Optional[UFuncSignature] = None
 
 
 # ---------------------------------------------------------------------------
@@ -328,5 +328,5 @@ class Module:
         return None
 
     @property
-    def gufuncs(self) -> list[GUFunc]:
-        return [f for f in self.functions if isinstance(f, GUFunc)]
+    def ufuncs(self) -> list[UFunc]:
+        return [f for f in self.functions if isinstance(f, UFunc)]

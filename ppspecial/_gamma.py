@@ -19,7 +19,7 @@ gamma   : exp(lgamma(x)) with sign handling for negative x.
 """
 
 from postyp import Float64, Int64, Bool
-from postpython.gufunc import gufunc
+from postpython import vectorize
 from postpython.math import exp, log, sin, floor, fabs, PI, LOG_PI, EULER
 
 
@@ -44,7 +44,7 @@ def _lgamma_stirling(x: Float64) -> Float64:
     return _HALF_LOG_2PI + (x - 0.5) * log(x) - x + p / x
 
 
-@gufunc("()->()")
+@vectorize
 def lgamma(x: Float64) -> Float64:
     """Natural log of the Gamma function: ln Γ(x), x > 0.
 
@@ -72,7 +72,7 @@ gammaln = lgamma
 # gamma — Γ(x)
 # ---------------------------------------------------------------------------
 
-@gufunc("()->()")
+@vectorize
 def gamma(x: Float64) -> Float64:
     """Gamma function Γ(x).
 
@@ -115,7 +115,7 @@ def _digamma_asymptotic(x: Float64) -> Float64:
     return log(x) - 0.5 / x + p * w
 
 
-@gufunc("()->()")
+@vectorize
 def digamma(x: Float64) -> Float64:
     """Digamma function ψ(x) = d/dx ln Γ(x).
 
@@ -144,7 +144,7 @@ def digamma(x: Float64) -> Float64:
 # polygamma — ψ⁽ⁿ⁾(x)
 # ---------------------------------------------------------------------------
 
-@gufunc("(),()->()")
+@vectorize
 def polygamma(n: Int64, x: Float64) -> Float64:
     """Polygamma function ψ⁽ⁿ⁾(x) = dⁿ⁺¹/dxⁿ⁺¹ ln Γ(x).
 
@@ -193,13 +193,13 @@ def polygamma(n: Int64, x: Float64) -> Float64:
 # beta / lbeta
 # ---------------------------------------------------------------------------
 
-@gufunc("(),()->()")
+@vectorize
 def lbeta(a: Float64, b: Float64) -> Float64:
     """Log of the beta function: ln B(a,b) = ln Γ(a) + ln Γ(b) - ln Γ(a+b)"""
     return lgamma(a) + lgamma(b) - lgamma(a + b)
 
 
-@gufunc("(),()->()")
+@vectorize
 def beta(a: Float64, b: Float64) -> Float64:
     """Beta function: B(a,b) = Γ(a)Γ(b)/Γ(a+b)"""
     return exp(lbeta(a, b))

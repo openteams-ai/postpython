@@ -4,7 +4,7 @@ Pipeline:
   source text
     → ast.parse                      (Python stdlib)
     → postpython.checker violations  (reject non-compilable syntax)
-    → FunctionLifter per function    (build IR Function / GUFunc)
+    → FunctionLifter per function    (build IR Function / UFunc)
     → Module                         (collect into a translation unit)
 """
 
@@ -18,7 +18,7 @@ from typing import Optional
 
 from ..checker import check_source, Violation
 from .ir import (
-    Module, Function, GUFunc, GUFuncSignature,
+    Module, Function, UFunc, UFuncSignature,
     BasicBlock, Param, Value,
     Const, BinOpInstr, UnaryOpInstr,
     ArrayLoad, ArrayStore, ArrayDim, ArrayStride,
@@ -52,16 +52,16 @@ from postyp import (
 
 
 # ---------------------------------------------------------------------------
-# Gufunc signature parser (shared between frontend and decorator)
+# Ufunc layout signature parser (shared between frontend and decorator)
 # ---------------------------------------------------------------------------
 
-def parse_gufunc_sig(sig: str) -> GUFuncSignature:
-    """Parse a gufunc signature string into a GUFuncSignature.
+def parse_ufunc_sig(sig: str) -> UFuncSignature:
+    """Parse a ufunc layout signature string into a UFuncSignature.
 
-    Example: "(m,k),(k,n)->(m,n)" → GUFuncSignature(inputs=[['m','k'],['k','n']], outputs=[['m','n']])
+    Example: "(m,k),(k,n)->(m,n)" → UFuncSignature(inputs=[['m','k'],['k','n']], outputs=[['m','n']])
     """
     if sig.count("->") != 1:
-        raise ValueError(f"Invalid gufunc signature (missing '->'): {sig!r}")
+        raise ValueError(f"Invalid ufunc layout signature (missing '->'): {sig!r}")
     lhs, rhs = sig.split("->", 1)
 
     name_re = re.compile(r"[a-z][a-z0-9_]*\Z")
@@ -78,24 +78,24 @@ def parse_gufunc_sig(sig: str) -> GUFuncSignature:
 
         skip_ws()
         if pos == length:
-            raise ValueError(f"Invalid gufunc signature (empty {side} side): {sig!r}")
+            raise ValueError(f"Invalid ufunc layout signature (empty {side} side): {sig!r}")
 
         while pos < length:
             if s[pos] != "(":
                 raise ValueError(
-                    f"Invalid gufunc signature (expected '(' in {side} side): {sig!r}"
+                    f"Invalid ufunc layout signature (expected '(' in {side} side): {sig!r}"
                 )
             pos += 1
             start = pos
             while pos < length and s[pos] != ")":
                 if s[pos] == "(":
                     raise ValueError(
-                        f"Invalid gufunc signature (nested '(' in {side} side): {sig!r}"
+                        f"Invalid ufunc layout signature (nested '(' in {side} side): {sig!r}"
                     )
                 pos += 1
             if pos == length:
                 raise ValueError(
-                    f"Invalid gufunc signature (unclosed group in {side} side): {sig!r}"
+                    f"Invalid ufunc layout signature (unclosed group in {side} side): {sig!r}"
                 )
 
             inner = s[start:pos].strip()
@@ -104,12 +104,12 @@ def parse_gufunc_sig(sig: str) -> GUFuncSignature:
                 dims = [part.strip() for part in inner.split(",")]
                 if any(not dim for dim in dims):
                     raise ValueError(
-                        f"Invalid gufunc signature (empty dimension name in {side} side): {sig!r}"
+                        f"Invalid ufunc layout signature (empty dimension name in {side} side): {sig!r}"
                     )
                 for dim in dims:
                     if not name_re.fullmatch(dim):
                         raise ValueError(
-                            f"Invalid gufunc signature dimension name {dim!r}: {sig!r}"
+                            f"Invalid ufunc layout signature dimension name {dim!r}: {sig!r}"
                         )
             else:
                 dims = []
@@ -120,13 +120,13 @@ def parse_gufunc_sig(sig: str) -> GUFuncSignature:
                 break
             if s[pos] != ",":
                 raise ValueError(
-                    f"Invalid gufunc signature (expected ',' in {side} side): {sig!r}"
+                    f"Invalid ufunc layout signature (expected ',' in {side} side): {sig!r}"
                 )
             pos += 1
             skip_ws()
             if pos == length:
                 raise ValueError(
-                    f"Invalid gufunc signature (trailing ',' in {side} side): {sig!r}"
+                    f"Invalid ufunc layout signature (trailing ',' in {side} side): {sig!r}"
                 )
 
         return groups
@@ -137,10 +137,10 @@ def parse_gufunc_sig(sig: str) -> GUFuncSignature:
     for dim in (dim for group in outputs for dim in group):
         if dim not in input_dims:
             raise ValueError(
-                f"Invalid gufunc signature output dimension {dim!r} "
+                f"Invalid ufunc layout signature output dimension {dim!r} "
                 f"does not appear in an input: {sig!r}"
             )
-    return GUFuncSignature(inputs=inputs, outputs=outputs)
+    return UFuncSignature(inputs=inputs, outputs=outputs)
 
 
 # ---------------------------------------------------------------------------
@@ -210,12 +210,12 @@ class FunctionLifter:
         self,
         node: ast.FunctionDef,
         module: Module,
-        gufunc_sig: Optional[str] = None,
+        ufunc_sig: Optional[str] = None,
         ufunc_kind: Optional[str] = None,
     ) -> None:
         self._node = node
         self._module = module
-        self._gufunc_sig = gufunc_sig
+        self._ufunc_sig = ufunc_sig
         self._ufunc_kind = ufunc_kind
         self._locals: dict[str, Value] = {}  # name → current SSA Value
         self._array_dims: dict[str, list[Value]] = {}
@@ -258,11 +258,11 @@ class FunctionLifter:
     def lift(self) -> Function:
         node = self._node
 
-        parsed_gufunc_sig = parse_gufunc_sig(self._gufunc_sig) if self._gufunc_sig is not None else None
+        parsed_ufunc_sig = parse_ufunc_sig(self._ufunc_sig) if self._ufunc_sig is not None else None
         core_dim_values: dict[str, Value] = {}
         core_dim_params: list[Param] = []
-        if parsed_gufunc_sig is not None:
-            for dim_name in parsed_gufunc_sig.core_dims:
+        if parsed_ufunc_sig is not None:
+            for dim_name in parsed_ufunc_sig.core_dims:
                 value = Value(f"pp_dim_{dim_name}", Int64)
                 core_dim_values[dim_name] = value
                 core_dim_params.append(Param(value.name, Int64))
@@ -297,20 +297,20 @@ class FunctionLifter:
             shape = annotation.shape if annotation else AnyShape
             layout = annotation.layout if annotation else COrder
             is_output = False
-            if parsed_gufunc_sig is not None:
-                output_index = user_arg_index - len(parsed_gufunc_sig.inputs)
-                is_output = 0 <= output_index < len(parsed_gufunc_sig.outputs)
+            if parsed_ufunc_sig is not None:
+                output_index = user_arg_index - len(parsed_ufunc_sig.inputs)
+                is_output = 0 <= output_index < len(parsed_ufunc_sig.outputs)
             params.append(Param(arg.arg, dtype, shape, layout, is_array, is_output))
             param_types[arg.arg] = dtype
 
-            if is_array and parsed_gufunc_sig is not None:
+            if is_array and parsed_ufunc_sig is not None:
                 dim_names: list[str] = []
-                if user_arg_index < len(parsed_gufunc_sig.inputs):
-                    dim_names = parsed_gufunc_sig.inputs[user_arg_index]
+                if user_arg_index < len(parsed_ufunc_sig.inputs):
+                    dim_names = parsed_ufunc_sig.inputs[user_arg_index]
                 else:
-                    output_index = user_arg_index - len(parsed_gufunc_sig.inputs)
-                    if output_index < len(parsed_gufunc_sig.outputs):
-                        dim_names = parsed_gufunc_sig.outputs[output_index]
+                    output_index = user_arg_index - len(parsed_ufunc_sig.inputs)
+                    if output_index < len(parsed_ufunc_sig.outputs):
+                        dim_names = parsed_ufunc_sig.outputs[output_index]
                 self._array_dims[arg.arg] = [core_dim_values[d] for d in dim_names]
             user_arg_index += 1
 
@@ -334,7 +334,7 @@ class FunctionLifter:
             else return_info.dtype
         )
 
-        if parsed_gufunc_sig is not None and self._ufunc_kind == "vectorize":
+        if parsed_ufunc_sig is not None and self._ufunc_kind == "vectorize":
             if any(param.is_array for param in params):
                 self._compiler_error(
                     node,
@@ -348,15 +348,15 @@ class FunctionLifter:
                     "@vectorize kernels must return a scalar dtype",
                 )
 
-        if parsed_gufunc_sig is not None and self._ufunc_kind == "guvectorize":
-            output_param_count = max(0, len(params) - len(parsed_gufunc_sig.inputs))
-            if output_param_count != len(parsed_gufunc_sig.outputs):
+        if parsed_ufunc_sig is not None and self._ufunc_kind == "guvectorize":
+            output_param_count = max(0, len(params) - len(parsed_ufunc_sig.inputs))
+            if output_param_count != len(parsed_ufunc_sig.outputs):
                 self._compiler_error(
                     node,
                     "PP100",
                     "@guvectorize kernels must declare one trailing output parameter for each output in the layout signature",
                 )
-            for param in params[len(parsed_gufunc_sig.inputs):]:
+            for param in params[len(parsed_ufunc_sig.inputs):]:
                 if not param.is_array:
                     self._compiler_error(
                         node,
@@ -370,11 +370,11 @@ class FunctionLifter:
                     "@guvectorize kernels must return None and write results through output parameters",
                 )
 
-        if parsed_gufunc_sig is not None and returns_array:
-            output_index = len(params) - len(parsed_gufunc_sig.inputs)
+        if parsed_ufunc_sig is not None and returns_array:
+            output_index = len(params) - len(parsed_ufunc_sig.inputs)
             output_dims = (
-                parsed_gufunc_sig.outputs[output_index]
-                if 0 <= output_index < len(parsed_gufunc_sig.outputs)
+                parsed_ufunc_sig.outputs[output_index]
+                if 0 <= output_index < len(parsed_ufunc_sig.outputs)
                 else []
             )
             self._implicit_array_return = "__pp_return"
@@ -390,14 +390,14 @@ class FunctionLifter:
             self._array_dims[output_param.name] = [core_dim_values[d] for d in output_dims]
             return_dtype = None
 
-        # Build the IR function (or gufunc).
-        if parsed_gufunc_sig is not None:
-            fn: Function = GUFunc(
+        # Build the IR function (or ufunc).
+        if parsed_ufunc_sig is not None:
+            fn: Function = UFunc(
                 name=node.name,
                 params=params,
                 return_dtype=return_dtype,
                 core_dim_params=core_dim_params,
-                gufunc_sig=parsed_gufunc_sig,
+                ufunc_sig=parsed_ufunc_sig,
             )
         else:
             fn = Function(name=node.name, params=params, return_dtype=return_dtype)
@@ -1084,7 +1084,7 @@ class FunctionLifter:
 # Module builder
 # ---------------------------------------------------------------------------
 
-_UFUNC_DECORATORS = frozenset({"vectorize", "guvectorize", "gufunc"})
+_UFUNC_DECORATORS = frozenset({"vectorize", "guvectorize"})
 
 
 @dataclass(frozen=True)
@@ -1205,19 +1205,19 @@ def compile_source(source: str, filename: str = "<unknown>") -> tuple[Module, li
     for node in tree.body:
         if isinstance(node, ast.FunctionDef):
             ufunc_decorator = _extract_ufunc_decorator(node)
-            gufunc_sig = ufunc_decorator.signature if ufunc_decorator else None
+            ufunc_sig = ufunc_decorator.signature if ufunc_decorator else None
             ufunc_kind = ufunc_decorator.kind if ufunc_decorator else None
-            if ufunc_decorator is not None and gufunc_sig is None:
+            if ufunc_decorator is not None and ufunc_sig is None:
                 errors.append(TypeError_PP(
                     code="PP100",
-                    message=f"@{ufunc_kind} requires a NumPy gufunc layout signature",
+                    message=f"@{ufunc_kind} requires a NumPy ufunc layout signature",
                     lineno=node.lineno,
                     col_offset=node.col_offset,
                 ))
                 continue
-            if gufunc_sig is not None:
+            if ufunc_sig is not None:
                 try:
-                    parse_gufunc_sig(gufunc_sig)
+                    parse_ufunc_sig(ufunc_sig)
                 except ValueError as exc:
                     errors.append(TypeError_PP(
                         code="PP100",
@@ -1227,7 +1227,7 @@ def compile_source(source: str, filename: str = "<unknown>") -> tuple[Module, li
                     ))
                     continue
 
-            lifter = FunctionLifter(node, module, gufunc_sig, ufunc_kind)
+            lifter = FunctionLifter(node, module, ufunc_sig, ufunc_kind)
             fn = lifter.lift()
             module.add_function(fn)
             errors.extend(lifter.errors)

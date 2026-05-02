@@ -7,7 +7,7 @@ Pipeline
 3. Emit    postpython.compiler.backend.c_backend  — IR → C99 source
 4. Compile system C compiler       — C99 → native shared library
 5. Load    ctypes                  — call compiled functions from Python
-6. Batch   numpy                   — broadcast over arrays via the gufunc loop
+6. Batch   numpy                   — broadcast over arrays via the ufunc wrapper
 
 Run from the project root:
 
@@ -79,7 +79,7 @@ if errors:
 
 print(f"  Module '{module.name}'  ({len(module.functions)} functions)")
 for fn in module.functions:
-    sig = getattr(fn, "gufunc_sig", None)
+    sig = getattr(fn, "ufunc_sig", None)
     sig_str = f"  [{sig}]" if sig else ""
     param_str = ", ".join(f"{p.name}: {p.dtype.__name__}" for p in fn.params)
     print(f"    {fn.name}({param_str}) -> {fn.return_dtype.__name__ if fn.return_dtype else 'void'}{sig_str}")
@@ -164,10 +164,10 @@ for x in [-3.0, -0.001, 0.0, 0.001, 5.0]:
 
 
 # ---------------------------------------------------------------------------
-# Step 6: call via NumPy (broadcast over arrays using interpreted gufunc)
+# Step 6: call via NumPy (broadcast over arrays using interpreted ufunc)
 # ---------------------------------------------------------------------------
 
-section("Step 6 — NumPy broadcast via interpreted @gufunc")
+section("Step 6 — NumPy broadcast via interpreted @vectorize")
 
 try:
     import numpy as np  # type: ignore[import]
@@ -175,8 +175,8 @@ except ImportError:
     print("  (numpy not installed; skipping broadcast demo)")
     sys.exit(0)
 
-# Import the POST Python module — the @gufunc decorator provides an
-# interpreted broadcast path until the compiled gufunc loop is registered.
+# Import the POST Python module — the @vectorize decorator provides an
+# interpreted broadcast path until the compiled ufunc loop is registered.
 import importlib.util, types
 
 spec = importlib.util.spec_from_file_location("gaussian", SOURCE)

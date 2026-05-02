@@ -1,21 +1,21 @@
-"""Example: matrix multiply as a POST Python generalized ufunc.
+"""Example: matrix multiply as a POST Python @guvectorize kernel.
 
 Signature: (m,k),(k,n)->(m,n)
 
-The most classic 2-D gufunc.  The shared dimension `k` must match between
+The most classic 2-D generalized ufunc shape.  The shared dimension `k` must match between
 the two inputs.  Outer dimensions (batch) are broadcast automatically.
 
 This example also demonstrates:
   * Two named core dimensions in each input.
   * A 2-D array output.
-  * How the gufunc broadcast loop wraps the inner triple-loop kernel.
+  * How the ufunc broadcast loop wraps the inner triple-loop kernel.
 """
 
 from postyp import Array, Float64, Int64
-from postpython.gufunc import gufunc
+from postpython import guvectorize
 
 
-@gufunc("(m,k),(k,n)->(m,n)")
+@guvectorize([], "(m,k),(k,n)->(m,n)")
 def matmul(
     a: Array[Float64],
     b: Array[Float64],
@@ -24,7 +24,7 @@ def matmul(
     """Compute out = a @ b for 2-D arrays.
 
     The output array is passed as an argument (write-through) rather than
-    returned, which maps directly to the NumPy gufunc protocol where output
+    returned, which maps directly to the NumPy ufunc protocol where output
     buffers are provided by the caller.
     """
     m: Int64 = len(a)

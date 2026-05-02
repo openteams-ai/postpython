@@ -19,7 +19,7 @@ expit  : numerically stable two-branch implementation.
 """
 
 from postyp import Float64, Bool
-from postpython.gufunc import gufunc
+from postpython import vectorize
 from postpython.math import exp, log, log1p, sqrt, fabs, isfinite
 from ppspecial._erf import erfc, erfinv
 
@@ -33,7 +33,7 @@ _LOG_SQRT2PI: Float64 = 0.9189385332046727 # ln(√(2π))
 # ndtr — Φ(x)
 # ---------------------------------------------------------------------------
 
-@gufunc("()->()")
+@vectorize
 def ndtr(x: Float64) -> Float64:
     """Standard normal CDF: Φ(x) = P(Z ≤ x) = erfc(-x/√2) / 2."""
     return erfc(-x / _SQRT2) * 0.5
@@ -43,7 +43,7 @@ def ndtr(x: Float64) -> Float64:
 # log_ndtr — ln Φ(x)
 # ---------------------------------------------------------------------------
 
-@gufunc("()->()")
+@vectorize
 def log_ndtr(x: Float64) -> Float64:
     """Log of the standard normal CDF: ln Φ(x).
 
@@ -73,7 +73,7 @@ def log_ndtr(x: Float64) -> Float64:
 # ndtri — inverse normal CDF
 # ---------------------------------------------------------------------------
 
-@gufunc("()->()")
+@vectorize
 def ndtri(x: Float64) -> Float64:
     """Inverse standard normal CDF (probit function): ndtri(ndtr(z)) == z.
 
@@ -90,7 +90,7 @@ def ndtri(x: Float64) -> Float64:
 # expit / logit
 # ---------------------------------------------------------------------------
 
-@gufunc("()->()")
+@vectorize
 def expit(x: Float64) -> Float64:
     """Logistic sigmoid: expit(x) = 1 / (1 + e^{-x}).
 
@@ -107,7 +107,7 @@ def expit(x: Float64) -> Float64:
 sigmoid = expit
 
 
-@gufunc("()->()")
+@vectorize
 def log_expit(x: Float64) -> Float64:
     """ln(expit(x)) = ln(1 / (1 + e^{-x})), numerically stable.
 
@@ -119,7 +119,7 @@ def log_expit(x: Float64) -> Float64:
     return x - log1p(exp(x))
 
 
-@gufunc("()->()")
+@vectorize
 def logit(x: Float64) -> Float64:
     """Log-odds: logit(x) = ln(x / (1 - x)), inverse of expit.
 
@@ -136,7 +136,7 @@ def logit(x: Float64) -> Float64:
 # xlogy / xlog1py — safe products with log
 # ---------------------------------------------------------------------------
 
-@gufunc("(),()->()")
+@vectorize
 def xlogy(x: Float64, y: Float64) -> Float64:
     """x · ln(y), with the convention that 0 · ln(0) = 0.
 
@@ -149,7 +149,7 @@ def xlogy(x: Float64, y: Float64) -> Float64:
     return x * log(y)
 
 
-@gufunc("(),()->()")
+@vectorize
 def xlog1py(x: Float64, y: Float64) -> Float64:
     """x · ln(1 + y), with the convention that 0 · ln(1 + 0) = 0.
 

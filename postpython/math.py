@@ -1,7 +1,7 @@
 """POST Python math library — scalar libm wrappers.
 
-These are plain typed functions (not gufuncs).  The compiler lowers each
-call to the corresponding libm symbol.  In interpreted mode they delegate
+These are plain typed scalar functions.  The compiler lowers each call to
+the corresponding libm symbol.  In interpreted mode they delegate
 to Python's math module.
 
 ppspecial and other numerical libraries import from here rather than

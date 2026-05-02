@@ -1,6 +1,6 @@
 """Gaussian kernel functions — POST Python example source.
 
-Demonstrates three gufunc patterns:
+Demonstrates three @vectorize patterns:
 
   square(x)                  — elementwise x²
   gaussian(x, mu, sigma)     — normal PDF value at x
@@ -11,22 +11,22 @@ annotated, no reflection, no closures, no *args / **kwargs.
 """
 
 from postyp import Float64
-from postpython.gufunc import gufunc
+from postpython import vectorize
 from postpython.math import exp
 
 
-@gufunc("()->()")
+@vectorize
 def square(x: Float64) -> Float64:
     return x * x
 
 
-@gufunc("(),(),()->()")
+@vectorize
 def gaussian(x: Float64, mu: Float64, sigma: Float64) -> Float64:
     z: Float64 = (x - mu) / sigma
     return exp(-0.5 * z * z) / (sigma * 2.5066282746310002)
 
 
-@gufunc("()->()")
+@vectorize
 def relu(x: Float64) -> Float64:
     if x > 0.0:
         return x

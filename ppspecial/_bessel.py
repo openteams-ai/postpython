@@ -20,7 +20,7 @@ Maximum relative error < 1.7e-8.
 """
 
 from postyp import Float64
-from postpython.gufunc import gufunc
+from postpython import vectorize
 from postpython.math import exp, log, sqrt, sin, cos, fabs
 
 
@@ -91,7 +91,7 @@ def _j1_asymp(ax: Float64) -> Float64:
 # j0 — J₀(x)
 # ---------------------------------------------------------------------------
 
-@gufunc("()->()")
+@vectorize
 def j0(x: Float64) -> Float64:
     """Bessel function of the first kind, order 0: J₀(x)."""
     ax: Float64 = fabs(x)
@@ -118,7 +118,7 @@ def j0(x: Float64) -> Float64:
 # j1 — J₁(x)
 # ---------------------------------------------------------------------------
 
-@gufunc("()->()")
+@vectorize
 def j1(x: Float64) -> Float64:
     """Bessel function of the first kind, order 1: J₁(x)."""
     ax: Float64 = fabs(x)
@@ -149,7 +149,7 @@ def j1(x: Float64) -> Float64:
 # y0 — Y₀(x), x > 0
 # ---------------------------------------------------------------------------
 
-@gufunc("()->()")
+@vectorize
 def y0(x: Float64) -> Float64:
     """Bessel function of the second kind, order 0: Y₀(x), x > 0."""
     if x <= 0.0:
@@ -176,7 +176,7 @@ def y0(x: Float64) -> Float64:
 # y1 — Y₁(x), x > 0
 # ---------------------------------------------------------------------------
 
-@gufunc("()->()")
+@vectorize
 def y1(x: Float64) -> Float64:
     """Bessel function of the second kind, order 1: Y₁(x), x > 0."""
     if x <= 0.0:
@@ -220,7 +220,7 @@ def y1(x: Float64) -> Float64:
 # i0 — I₀(x)
 # ---------------------------------------------------------------------------
 
-@gufunc("()->()")
+@vectorize
 def i0(x: Float64) -> Float64:
     """Modified Bessel function of the first kind, order 0: I₀(x)."""
     ax: Float64 = fabs(x)
@@ -251,7 +251,7 @@ def i0(x: Float64) -> Float64:
 # i1 — I₁(x)
 # ---------------------------------------------------------------------------
 
-@gufunc("()->()")
+@vectorize
 def i1(x: Float64) -> Float64:
     """Modified Bessel function of the first kind, order 1: I₁(x)."""
     ax: Float64 = fabs(x)
@@ -286,7 +286,7 @@ def i1(x: Float64) -> Float64:
 # k0 — K₀(x), x > 0
 # ---------------------------------------------------------------------------
 
-@gufunc("()->()")
+@vectorize
 def k0(x: Float64) -> Float64:
     """Modified Bessel function of the second kind, order 0: K₀(x), x > 0."""
     if x <= 0.0:
@@ -316,7 +316,7 @@ def k0(x: Float64) -> Float64:
 # k1 — K₁(x), x > 0
 # ---------------------------------------------------------------------------
 
-@gufunc("()->()")
+@vectorize
 def k1(x: Float64) -> Float64:
     """Modified Bessel function of the second kind, order 1: K₁(x), x > 0."""
     if x <= 0.0:

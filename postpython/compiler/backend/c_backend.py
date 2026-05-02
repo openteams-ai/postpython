@@ -3,7 +3,7 @@
 Lowers a POST Python IR Module to a C99 source string.  The output is
 intended to be compiled by the system C compiler (cc / clang / gcc).
 
-For gufunc outputs, the emitted C conforms to the NumPy generalized
+For vectorized outputs, the emitted C conforms to the NumPy
 ufunc C API so the resulting shared library can be registered with
 numpy.lib.add_newdoc_ufunc or loaded via ctypes.
 """
@@ -14,7 +14,7 @@ import io
 from typing import Optional
 
 from ..ir import (
-    Module, Function, GUFunc, GUFuncSignature,
+    Module, Function, UFunc, UFuncSignature,
     BasicBlock, Value, Param,
     Const, BinOpInstr, UnaryOpInstr,
     ArrayLoad, ArrayStore, ArrayDim, ArrayStride,
@@ -263,8 +263,8 @@ def _byte_stride_expr(element_factors: list[str], dtype: type[DType]) -> str:
     return " * ".join([*element_factors, f"sizeof({c_type(dtype)})"])
 
 
-def _gufunc_stride_exprs(p: Param, dims: list[str]) -> list[str]:
-    """Return byte-stride expressions for a gufunc core view."""
+def _ufunc_stride_exprs(p: Param, dims: list[str]) -> list[str]:
+    """Return byte-stride expressions for a ufunc core view."""
     ndim = len(dims)
     layout = p.layout
 
@@ -272,7 +272,7 @@ def _gufunc_stride_exprs(p: Param, dims: list[str]) -> list[str]:
         result: list[str] = []
         for stride in layout.strides[:ndim]:
             if stride is None:
-                # The simplified reference gufunc ABI cannot recover dynamic
+                # The simplified reference ufunc ABI cannot recover dynamic
                 # core strides from NumPy's steps array yet, so keep the view
                 # compact for now.
                 result.append(f"sizeof({c_type(p.dtype)})")
@@ -311,12 +311,12 @@ def emit_function(fn: Function, em: CEmitter, symbol_map: dict[str, str] | None 
 
 
 # ---------------------------------------------------------------------------
-# UFunc/GUFunc emission (NumPy ufunc protocol)
+# UFunc emission (NumPy ufunc protocol)
 # ---------------------------------------------------------------------------
 
-def emit_gufunc(fn: GUFunc, em: CEmitter, symbol_map: dict[str, str] | None = None) -> None:
-    """Emit the inner kernel and the NumPy ufunc/gufunc wrapper."""
-    sig = fn.gufunc_sig
+def emit_ufunc(fn: UFunc, em: CEmitter, symbol_map: dict[str, str] | None = None) -> None:
+    """Emit the inner kernel and the NumPy ufunc wrapper."""
+    sig = fn.ufunc_sig
     if sig is None:
         emit_function(fn, em, symbol_map)
         return
@@ -325,15 +325,15 @@ def emit_gufunc(fn: GUFunc, em: CEmitter, symbol_map: dict[str, str] | None = No
     emit_function(fn, em, symbol_map)
     em.line()
 
-    # 2. Emit the NumPy gufunc wrapper.
+    # 2. Emit the NumPy ufunc wrapper.
     n_in  = len(sig.inputs)
     n_out = len(sig.outputs)
     output_params = fn.params[n_in:n_in + n_out]
     out_dtype = fn.return_dtype  # dtype written to returned scalar output(s); None = output buffers
 
-    em.line(f"/* NumPy generalized ufunc wrapper for {fn.name} */")
+    em.line(f"/* NumPy ufunc wrapper for {fn.name} */")
     em.line(f"/* Signature: {sig} */")
-    em.line(f"static void {fn.name}_gufunc_loop(")
+    em.line(f"static void {fn.name}_ufunc_loop(")
     em.indent()
     em.line("char **args,")
     em.line("npy_intp const *dimensions,")
@@ -376,7 +376,7 @@ def emit_gufunc(fn: GUFunc, em: CEmitter, symbol_map: dict[str, str] | None = No
             strides_name = f"_pp_strides_{i}"
             view_name = f"_pp_arg_{i}"
             em.line(_c_array_literal(shape_name, [f"_pp_dim_{dim}" for dim in dims]))
-            em.line(_c_array_literal(strides_name, _gufunc_stride_exprs(p, dims)))
+            em.line(_c_array_literal(strides_name, _ufunc_stride_exprs(p, dims)))
             em.line(
                 f"__pp_array {view_name} = "
                 f"{{arg{i} + _i * step{i}, {len(dims)}, {shape_name}, {strides_name}, 0}};"
@@ -394,7 +394,7 @@ def emit_gufunc(fn: GUFunc, em: CEmitter, symbol_map: dict[str, str] | None = No
                 strides_name = f"_pp_strides_{k}"
                 view_name = f"_pp_arg_{k}"
                 em.line(_c_array_literal(shape_name, [f"_pp_dim_{dim}" for dim in dims]))
-                em.line(_c_array_literal(strides_name, _gufunc_stride_exprs(p, dims)))
+                em.line(_c_array_literal(strides_name, _ufunc_stride_exprs(p, dims)))
                 em.line(
                     f"__pp_array {view_name} = "
                     f"{{arg{k} + _i * step{k}, {len(dims)}, {shape_name}, {strides_name}, 0}};"
@@ -435,11 +435,11 @@ _PREAMBLE = """\
 #include <stddef.h>
 
 /* NumPy ufunc protocol.
-   When built with -DNUMPY_GUFUNC the real NumPy headers supply npy_intp and
+   When built with -DNUMPY_UFUNC the real NumPy headers supply npy_intp and
    NPY_UNUSED.  Otherwise we provide ABI-compatible fallback definitions so
-   the gufunc loop functions compile without NumPy installed; they can still
+   the ufunc loop functions compile without NumPy installed; they can still
    be called directly or registered with numpy.ctypeslib later. */
-#ifdef NUMPY_GUFUNC
+#ifdef NUMPY_UFUNC
 #  include <numpy/ndarraytypes.h>
 #  include <numpy/ufuncobject.h>
 #else
@@ -482,8 +482,8 @@ def emit_module(module: Module) -> str:
 
     # Definitions.
     for fn in module.functions:
-        if isinstance(fn, GUFunc):
-            emit_gufunc(fn, em, symbol_map)
+        if isinstance(fn, UFunc):
+            emit_ufunc(fn, em, symbol_map)
         else:
             emit_function(fn, em, symbol_map)
         em.line()

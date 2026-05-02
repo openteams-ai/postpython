@@ -1,4 +1,4 @@
-"""Example: L2 norm as a POST Python generalized ufunc.
+"""Example: L2 norm as a POST Python @guvectorize kernel.
 
 Signature: (n)->()
 
@@ -7,25 +7,25 @@ The norm broadcasts naturally over batches: norm([[3,4],[5,12]]) → [5., 13.]
 """
 
 from postyp import Array, Float64
-from postpython.gufunc import gufunc
+from postpython import guvectorize
 
 
-@gufunc("(n)->()")
-def norm(a: Array[Float64]) -> Float64:
+@guvectorize([], "(n)->()")
+def norm(a: Array[Float64], out: Array[Float64]) -> None:
     acc: Float64 = 0.0
     for i in range(len(a)):
         acc += a[i] * a[i]
-    return acc ** 0.5
+    out[0] = acc ** 0.5
 
 
-@gufunc("(n)->(n)")
-def normalize(a: Array[Float64]) -> Array[Float64]:
+@guvectorize([], "(n)->(n)")
+def normalize(a: Array[Float64], out: Array[Float64]) -> None:
     """Return a unit vector in the direction of *a*."""
-    n: Float64 = norm(a)
-    result: Array[Float64] = [0.0] * len(a)  # type: ignore[assignment]
+    norm_out: Array[Float64] = [0.0]  # type: ignore[assignment]
+    norm(a, norm_out)
+    n: Float64 = norm_out[0]
     for i in range(len(a)):
-        result[i] = a[i] / n
-    return result
+        out[i] = a[i] / n
 
 
 if __name__ == "__main__":
@@ -38,6 +38,6 @@ if __name__ == "__main__":
     try:
         import numpy as np
         batch = np.array([[3.0, 4.0], [5.0, 12.0]])
-        print(f"batch norm:\n{norm.as_numpy_gufunc()(batch)}")  # expected: [ 5. 13.]
+        print(f"batch norm:\n{norm.as_numpy_ufunc()(batch)}")  # expected: [ 5. 13.]
     except ImportError:
         print("(NumPy not installed; skipping batch test)")

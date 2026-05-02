@@ -16,12 +16,12 @@ erfinv: Rational approximation by Peter J. Acklam (2003).
 """
 
 from postyp import Float64, Bool
-from postpython.gufunc import gufunc
+from postpython import vectorize
 from postpython.math import exp, log, sqrt, fabs
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers — not gufuncs, called inside gufunc kernels
+# Internal helpers called inside vectorized kernels.
 # ---------------------------------------------------------------------------
 
 def _erfc_positive(x: Float64) -> Float64:
@@ -44,7 +44,7 @@ def _erfc_positive(x: Float64) -> Float64:
 # erfc / erf
 # ---------------------------------------------------------------------------
 
-@gufunc("()->()")
+@vectorize
 def erfc(x: Float64) -> Float64:
     """Complementary error function: erfc(x) = 1 - erf(x) = (2/√π) ∫ₓ^∞ e^{-t²} dt
 
@@ -57,7 +57,7 @@ def erfc(x: Float64) -> Float64:
     return _erfc_positive(x)
 
 
-@gufunc("()->()")
+@vectorize
 def erf(x: Float64) -> Float64:
     """Error function: erf(x) = (2/√π) ∫₀ˣ e^{-t²} dt"""
     if x == 0.0:
@@ -158,7 +158,7 @@ def _ndtri_rational(p: Float64) -> Float64:
     return -(num / den)
 
 
-@gufunc("()->()")
+@vectorize
 def erfinv(x: Float64) -> Float64:
     """Inverse error function: erfinv(erf(x)) == x for x in (-1, 1).
 
@@ -188,7 +188,7 @@ def erfinv(x: Float64) -> Float64:
     return result
 
 
-@gufunc("()->()")
+@vectorize
 def erfcinv(x: Float64) -> Float64:
     """Inverse complementary error function: erfcinv(erfc(x)) == x for x in (0, 2)."""
     return erfinv(1.0 - x)

@@ -4,49 +4,49 @@ These mirror NumPy's element-wise binary ufuncs such as np.add,
 np.multiply, np.power, np.maximum, np.minimum, np.copysign, np.hypot,
 np.logical_and, np.logical_or, and the comparison ufuncs.
 
-A (),()->() gufunc takes two scalars and returns one.  Like all ufuncs,
+A @vectorize binary kernel takes two scalars and returns one.  Like all ufuncs,
 broadcasting over arbitrary array shapes is handled by the runtime.
 """
 
 from postyp import Float64, Int64, Bool
-from postpython.gufunc import gufunc
+from postpython import vectorize
 
 
 # ---------------------------------------------------------------------------
 # Arithmetic
 # ---------------------------------------------------------------------------
 
-@gufunc("(),()->()")
+@vectorize
 def pp_add(x: Float64, y: Float64) -> Float64:
     """x + y  (mirrors np.add)"""
     return x + y
 
 
-@gufunc("(),()->()")
+@vectorize
 def pp_subtract(x: Float64, y: Float64) -> Float64:
     """x - y  (mirrors np.subtract)"""
     return x - y
 
 
-@gufunc("(),()->()")
+@vectorize
 def pp_multiply(x: Float64, y: Float64) -> Float64:
     """x * y  (mirrors np.multiply)"""
     return x * y
 
 
-@gufunc("(),()->()")
+@vectorize
 def pp_divide(x: Float64, y: Float64) -> Float64:
     """x / y  (mirrors np.divide; undefined for y == 0)"""
     return x / y
 
 
-@gufunc("(),()->()")
+@vectorize
 def pp_power(base: Float64, exp: Float64) -> Float64:
     """base ** exp  (mirrors np.power)"""
     return base ** exp
 
 
-@gufunc("(),()->()")
+@vectorize
 def pp_mod(x: Float64, y: Float64) -> Float64:
     """x % y  (mirrors np.mod / np.remainder)"""
     return x % y
@@ -56,7 +56,7 @@ def pp_mod(x: Float64, y: Float64) -> Float64:
 # Extrema
 # ---------------------------------------------------------------------------
 
-@gufunc("(),()->()")
+@vectorize
 def pp_maximum(x: Float64, y: Float64) -> Float64:
     """Element-wise maximum (mirrors np.maximum; NaN-propagating)."""
     if x >= y:
@@ -64,7 +64,7 @@ def pp_maximum(x: Float64, y: Float64) -> Float64:
     return y
 
 
-@gufunc("(),()->()")
+@vectorize
 def pp_minimum(x: Float64, y: Float64) -> Float64:
     """Element-wise minimum (mirrors np.minimum; NaN-propagating)."""
     if x <= y:
@@ -72,7 +72,7 @@ def pp_minimum(x: Float64, y: Float64) -> Float64:
     return y
 
 
-@gufunc("(),()->()")
+@vectorize
 def pp_fmod(x: Float64, y: Float64) -> Float64:
     """C-style floating-point remainder: sign follows x (mirrors np.fmod)."""
     return x - (x // y) * y
@@ -82,14 +82,14 @@ def pp_fmod(x: Float64, y: Float64) -> Float64:
 # Geometry / utilities
 # ---------------------------------------------------------------------------
 
-@gufunc("(),()->()")
+@vectorize
 def hypot(x: Float64, y: Float64) -> Float64:
     """√(x² + y²) without intermediate overflow (mirrors np.hypot)."""
     a: Float64 = x * x + y * y
     return a ** 0.5
 
 
-@gufunc("(),()->()")
+@vectorize
 def copysign(magnitude: Float64, sign_src: Float64) -> Float64:
     """Return magnitude with the sign of sign_src (mirrors np.copysign)."""
     if magnitude < 0.0:
@@ -99,7 +99,7 @@ def copysign(magnitude: Float64, sign_src: Float64) -> Float64:
     return magnitude
 
 
-@gufunc("(),()->()")
+@vectorize
 def ldexp(x: Float64, n: Int64) -> Float64:
     """x * 2**n  (mirrors np.ldexp; integer exponent)."""
     result: Float64 = x
@@ -117,37 +117,37 @@ def ldexp(x: Float64, n: Int64) -> Float64:
 # Comparison ufuncs (return Bool)
 # ---------------------------------------------------------------------------
 
-@gufunc("(),()->()")
+@vectorize
 def pp_equal(x: Float64, y: Float64) -> Bool:
     """x == y  (mirrors np.equal)"""
     return x == y
 
 
-@gufunc("(),()->()")
+@vectorize
 def pp_not_equal(x: Float64, y: Float64) -> Bool:
     """x != y  (mirrors np.not_equal)"""
     return x != y
 
 
-@gufunc("(),()->()")
+@vectorize
 def pp_less(x: Float64, y: Float64) -> Bool:
     """x < y  (mirrors np.less)"""
     return x < y
 
 
-@gufunc("(),()->()")
+@vectorize
 def pp_less_equal(x: Float64, y: Float64) -> Bool:
     """x <= y  (mirrors np.less_equal)"""
     return x <= y
 
 
-@gufunc("(),()->()")
+@vectorize
 def pp_greater(x: Float64, y: Float64) -> Bool:
     """x > y  (mirrors np.greater)"""
     return x > y
 
 
-@gufunc("(),()->()")
+@vectorize
 def pp_greater_equal(x: Float64, y: Float64) -> Bool:
     """x >= y  (mirrors np.greater_equal)"""
     return x >= y
@@ -157,19 +157,19 @@ def pp_greater_equal(x: Float64, y: Float64) -> Bool:
 # Logical ufuncs (Bool inputs and outputs)
 # ---------------------------------------------------------------------------
 
-@gufunc("(),()->()")
+@vectorize
 def pp_logical_and(x: Bool, y: Bool) -> Bool:
     """x and y  (mirrors np.logical_and)"""
     return x and y
 
 
-@gufunc("(),()->()")
+@vectorize
 def pp_logical_or(x: Bool, y: Bool) -> Bool:
     """x or y  (mirrors np.logical_or)"""
     return x or y
 
 
-@gufunc("(),()->()")
+@vectorize
 def pp_logical_xor(x: Bool, y: Bool) -> Bool:
     """x XOR y  (mirrors np.logical_xor)"""
     return (x or y) and not (x and y)

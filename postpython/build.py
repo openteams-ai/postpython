@@ -8,7 +8,7 @@ High-level pipeline: POST Python source → C99 → native shared library.
     # → /tmp/gaussian-<hash>.so  (or .dylib on macOS)
 
 The returned Path points to the compiled shared library.  Load it with
-ctypes.CDLL or register gufunc loops with NumPy.
+ctypes.CDLL or register ufunc loops with NumPy.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ def build_source(
     cc: str = _DEFAULT_CC,
     cflags: list[str] | None = None,
     keep_c: bool = False,
-    numpy_gufunc: bool = False,
+    numpy_ufunc: bool = False,
 ) -> Path:
     """Compile *source* (POST Python text) to a shared library.
 
@@ -63,7 +63,7 @@ def build_source(
     cc          C compiler command (default: ``cc``).
     cflags      Extra flags prepended to the compile command.
     keep_c      If True, do not delete the intermediate .c file.
-    numpy_gufunc If True, pass ``-DNUMPY_GUFUNC`` and include NumPy headers.
+    numpy_ufunc If True, pass ``-DNUMPY_UFUNC`` and include NumPy headers.
 
     Returns
     -------
@@ -95,10 +95,10 @@ def build_source(
         output = Path(tempfile.mktemp(prefix=f"{stem}-", suffix=_SO_SUFFIX))
 
     extra_flags: list[str] = list(cflags or [])
-    if numpy_gufunc:
+    if numpy_ufunc:
         import numpy as np  # type: ignore[import]
         numpy_inc = np.get_include()
-        extra_flags += [f"-I{numpy_inc}", "-DNUMPY_GUFUNC"]
+        extra_flags += [f"-I{numpy_inc}", "-DNUMPY_UFUNC"]
 
     cmd = [cc, *extra_flags, *_DEFAULT_CFLAGS, "-o", str(output), str(c_path)]
 

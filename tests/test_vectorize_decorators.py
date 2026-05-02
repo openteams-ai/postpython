@@ -4,7 +4,7 @@ import pytest
 
 from postpython.compiler.backend.c_backend import emit_module
 from postpython.compiler.frontend import compile_source
-from postpython.compiler.ir import GUFunc
+from postpython.compiler.ir import UFunc as UFuncIR
 from postpython import guvectorize, vectorize
 from postyp import Array, Float64
 
@@ -68,7 +68,7 @@ def test_guvectorize_interpreted_supports_scalar_output_parameter():
     assert np.allclose(result, np.array([23.0, 27.0]))
 
 
-def test_compiler_lowers_vectorize_as_scalar_gufunc():
+def test_compiler_lowers_vectorize_as_scalar_ufunc():
     source = """\
 from postpython import vectorize
 from postyp import Float64
@@ -82,9 +82,9 @@ def add(x: Float64, y: Float64) -> Float64:
     fn = module.functions[0]
     c_source = emit_module(module)
 
-    assert isinstance(fn, GUFunc)
-    assert str(fn.gufunc_sig) == "(),()->()"
-    assert "static void add_gufunc_loop(" in c_source
+    assert isinstance(fn, UFuncIR)
+    assert str(fn.ufunc_sig) == "(),()->()"
+    assert "static void add_ufunc_loop(" in c_source
 
 
 def test_compiler_lowers_guvectorize_numba_form():
@@ -102,8 +102,8 @@ def add_scalar(x: Array[Float64], y: Float64, out: Array[Float64]) -> None:
     fn = module.functions[0]
     c_source = emit_module(module)
 
-    assert isinstance(fn, GUFunc)
-    assert str(fn.gufunc_sig) == "(n),()->(n)"
+    assert isinstance(fn, UFuncIR)
+    assert str(fn.ufunc_sig) == "(n),()->(n)"
     assert "void add_scalar(__pp_array* _x, double _y, __pp_array* _out, int64_t _pp_dim_n)" in c_source
 
 

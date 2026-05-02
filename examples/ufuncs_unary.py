@@ -3,47 +3,47 @@
 These mirror NumPy's element-wise unary ufuncs such as np.square,
 np.sqrt, np.exp, np.log, np.abs, np.sign, np.ceil, np.floor.
 
-A ()->() gufunc takes a single scalar, returns a single scalar.  NumPy
+A @vectorize kernel takes a single scalar and returns a single scalar.  NumPy
 (or the POST Python runtime) handles broadcasting over any array shape
 automatically; the author only writes the scalar kernel.
 
-Contrast with the generalized ufuncs in gufunc_norm.py / gufunc_dot.py
+Contrast with the generalized kernels in the dot/norm examples.
 which operate on *sub-arrays* of specified rank.
 """
 
 from postyp import Float64, Int64, Bool
-from postpython.gufunc import gufunc
+from postpython import vectorize
 
 
 # ---------------------------------------------------------------------------
 # Arithmetic
 # ---------------------------------------------------------------------------
 
-@gufunc("()->()")
+@vectorize
 def square(x: Float64) -> Float64:
     """x → x²"""
     return x * x
 
 
-@gufunc("()->()")
+@vectorize
 def cube(x: Float64) -> Float64:
     """x → x³"""
     return x * x * x
 
 
-@gufunc("()->()")
+@vectorize
 def reciprocal(x: Float64) -> Float64:
     """x → 1/x"""
     return 1.0 / x
 
 
-@gufunc("()->()")
+@vectorize
 def pp_sqrt(x: Float64) -> Float64:
     """x → √x  (non-negative inputs only)"""
     return x ** 0.5
 
 
-@gufunc("()->()")
+@vectorize
 def pp_abs(x: Float64) -> Float64:
     """x → |x|"""
     if x < 0.0:
@@ -51,7 +51,7 @@ def pp_abs(x: Float64) -> Float64:
     return x
 
 
-@gufunc("()->()")
+@vectorize
 def sign(x: Float64) -> Float64:
     """x → -1, 0, or +1"""
     if x > 0.0:
@@ -65,7 +65,7 @@ def sign(x: Float64) -> Float64:
 # Rounding
 # ---------------------------------------------------------------------------
 
-@gufunc("()->()")
+@vectorize
 def pp_floor(x: Float64) -> Float64:
     """x → ⌊x⌋  (largest integer ≤ x)"""
     t: Float64 = x - (x % 1.0)
@@ -74,7 +74,7 @@ def pp_floor(x: Float64) -> Float64:
     return t
 
 
-@gufunc("()->()")
+@vectorize
 def pp_ceil(x: Float64) -> Float64:
     """x → ⌈x⌉  (smallest integer ≥ x)"""
     t: Float64 = x - (x % 1.0)
@@ -87,7 +87,7 @@ def pp_ceil(x: Float64) -> Float64:
 # Activation functions (common in ML pipelines)
 # ---------------------------------------------------------------------------
 
-@gufunc("()->()")
+@vectorize
 def relu(x: Float64) -> Float64:
     """Rectified linear unit: x → max(0, x)"""
     if x > 0.0:
@@ -95,7 +95,7 @@ def relu(x: Float64) -> Float64:
     return 0.0
 
 
-@gufunc("()->()")
+@vectorize
 def sigmoid(x: Float64) -> Float64:
     """Logistic sigmoid: x → 1 / (1 + e^(-x))
 
@@ -108,7 +108,7 @@ def sigmoid(x: Float64) -> Float64:
     return z / (1.0 + z)
 
 
-@gufunc("()->()")
+@vectorize
 def pp_exp_approx(x: Float64) -> Float64:
     """Minimax polynomial approximation of e^x valid for |x| ≤ 1.
 
@@ -130,7 +130,7 @@ def pp_exp_approx(x: Float64) -> Float64:
     return result
 
 
-@gufunc("()->()")
+@vectorize
 def swish(x: Float64) -> Float64:
     """Swish activation: x → x · σ(x)"""
     return x * sigmoid(x)
@@ -140,13 +140,13 @@ def swish(x: Float64) -> Float64:
 # Type conversion ufuncs
 # ---------------------------------------------------------------------------
 
-@gufunc("()->()")
+@vectorize
 def float_to_int(x: Float64) -> Int64:
     """Truncate float to int64 (towards zero)."""
     return Int64(x)
 
 
-@gufunc("()->()")
+@vectorize
 def is_positive(x: Float64) -> Bool:
     """x → True if x > 0"""
     return x > 0.0

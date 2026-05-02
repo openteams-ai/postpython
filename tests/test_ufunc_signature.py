@@ -1,9 +1,9 @@
-"""Generalized ufunc signature parser tests."""
+"""Vectorized-function layout signature parser tests."""
 
 import pytest
 
-from postpython.compiler.frontend import compile_source, parse_gufunc_sig
-from postpython.gufunc import gufunc, guvectorize
+from postpython.compiler.frontend import compile_source
+from postpython.ufunc import guvectorize, parse_layout_signature
 
 
 @pytest.mark.parametrize(
@@ -16,8 +16,8 @@ from postpython.gufunc import gufunc, guvectorize
         (" (n) , (n) -> () ", [["n"], ["n"]], [[]]),
     ],
 )
-def test_valid_gufunc_signatures(signature, inputs, outputs):
-    parsed = parse_gufunc_sig(signature)
+def test_valid_layout_signatures(signature, inputs, outputs):
+    parsed = parse_layout_signature(signature)
 
     assert parsed.inputs == inputs
     assert parsed.outputs == outputs
@@ -37,17 +37,9 @@ def test_valid_gufunc_signatures(signature, inputs, outputs):
         "(n)->((n))",
     ],
 )
-def test_invalid_gufunc_signatures_are_rejected(signature):
+def test_invalid_layout_signatures_are_rejected(signature):
     with pytest.raises(ValueError):
-        parse_gufunc_sig(signature)
-
-
-def test_gufunc_decorator_rejects_invalid_signature():
-    with pytest.raises(ValueError, match="@gufunc: invalid signature"):
-
-        @gufunc("(N)->()")
-        def identity(x: int) -> int:
-            return x
+        parse_layout_signature(signature)
 
 
 def test_guvectorize_decorator_rejects_invalid_signature():
@@ -58,14 +50,14 @@ def test_guvectorize_decorator_rejects_invalid_signature():
             out = x
 
 
-def test_compile_source_reports_invalid_gufunc_signature():
+def test_compile_source_reports_invalid_guvectorize_signature():
     source = """\
-from postpython.gufunc import gufunc
+from postpython import guvectorize
 from postyp import Float64
 
-@gufunc("(n)->(m)")
-def f(x: Float64) -> Float64:
-    return x
+@guvectorize([], "(n)->(m)")
+def f(x: Float64, out: Float64) -> None:
+    out = x
 """
 
     _, errors = compile_source(source)
