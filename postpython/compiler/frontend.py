@@ -11,6 +11,7 @@ Pipeline:
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -44,39 +45,86 @@ def parse_gufunc_sig(sig: str) -> GUFuncSignature:
 
     Example: "(m,k),(k,n)->(m,n)" → GUFuncSignature(inputs=[['m','k'],['k','n']], outputs=[['m','n']])
     """
-    if "->" not in sig:
+    if sig.count("->") != 1:
         raise ValueError(f"Invalid gufunc signature (missing '->'): {sig!r}")
     lhs, rhs = sig.split("->", 1)
 
-    def _parse_groups(s: str) -> list[list[str]]:
-        groups = []
-        s = s.strip()
-        if not s:
-            return groups
-        # Split on '),' boundary
-        parts = []
-        depth = 0
-        current: list[str] = []
-        for ch in s:
-            if ch == "(":
-                depth += 1
-            elif ch == ")":
-                depth -= 1
-                current.append(ch)
-                if depth == 0:
-                    parts.append("".join(current).strip())
-                    current = []
-                continue
-            if depth > 0 or ch not in (",", " "):
-                current.append(ch)
-        for p in parts:
-            inner = p.strip("() \t")
-            dims = [d.strip() for d in inner.split(",") if d.strip()]
+    name_re = re.compile(r"[a-z][a-z0-9_]*\Z")
+
+    def _parse_groups(s: str, side: str) -> list[list[str]]:
+        groups: list[list[str]] = []
+        pos = 0
+        length = len(s)
+
+        def skip_ws() -> None:
+            nonlocal pos
+            while pos < length and s[pos].isspace():
+                pos += 1
+
+        skip_ws()
+        if pos == length:
+            raise ValueError(f"Invalid gufunc signature (empty {side} side): {sig!r}")
+
+        while pos < length:
+            if s[pos] != "(":
+                raise ValueError(
+                    f"Invalid gufunc signature (expected '(' in {side} side): {sig!r}"
+                )
+            pos += 1
+            start = pos
+            while pos < length and s[pos] != ")":
+                if s[pos] == "(":
+                    raise ValueError(
+                        f"Invalid gufunc signature (nested '(' in {side} side): {sig!r}"
+                    )
+                pos += 1
+            if pos == length:
+                raise ValueError(
+                    f"Invalid gufunc signature (unclosed group in {side} side): {sig!r}"
+                )
+
+            inner = s[start:pos].strip()
+            pos += 1
+            if inner:
+                dims = [part.strip() for part in inner.split(",")]
+                if any(not dim for dim in dims):
+                    raise ValueError(
+                        f"Invalid gufunc signature (empty dimension name in {side} side): {sig!r}"
+                    )
+                for dim in dims:
+                    if not name_re.fullmatch(dim):
+                        raise ValueError(
+                            f"Invalid gufunc signature dimension name {dim!r}: {sig!r}"
+                        )
+            else:
+                dims = []
             groups.append(dims)
+
+            skip_ws()
+            if pos == length:
+                break
+            if s[pos] != ",":
+                raise ValueError(
+                    f"Invalid gufunc signature (expected ',' in {side} side): {sig!r}"
+                )
+            pos += 1
+            skip_ws()
+            if pos == length:
+                raise ValueError(
+                    f"Invalid gufunc signature (trailing ',' in {side} side): {sig!r}"
+                )
+
         return groups
 
-    inputs = _parse_groups(lhs)
-    outputs = _parse_groups(rhs)
+    inputs = _parse_groups(lhs, "input")
+    outputs = _parse_groups(rhs, "output")
+    input_dims = {dim for group in inputs for dim in group}
+    for dim in (dim for group in outputs for dim in group):
+        if dim not in input_dims:
+            raise ValueError(
+                f"Invalid gufunc signature output dimension {dim!r} "
+                f"does not appear in an input: {sig!r}"
+            )
     return GUFuncSignature(inputs=inputs, outputs=outputs)
 
 
@@ -901,6 +949,17 @@ def compile_source(source: str, filename: str = "<unknown>") -> tuple[Module, li
                 if sig is not None:
                     gufunc_sig = sig
                     break
+            if gufunc_sig is not None:
+                try:
+                    parse_gufunc_sig(gufunc_sig)
+                except ValueError as exc:
+                    errors.append(TypeError_PP(
+                        code="PP100",
+                        message=str(exc),
+                        lineno=node.lineno,
+                        col_offset=node.col_offset,
+                    ))
+                    continue
 
             lifter = FunctionLifter(node, module, gufunc_sig)
             fn = lifter.lift()
