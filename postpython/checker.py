@@ -81,12 +81,10 @@ class _Checker(ast.NodeVisitor):
             filename=self.filename,
         ))
 
-    def _call_name(self, node: ast.Call) -> str | None:
-        """Return the bare name of a Call's function, or None."""
+    def _direct_call_name(self, node: ast.Call) -> str | None:
+        """Return the direct function name for calls like f(...), or None."""
         if isinstance(node.func, ast.Name):
             return node.func.id
-        if isinstance(node.func, ast.Attribute):
-            return node.func.attr
         return None
 
     # -- dynamic execution ---------------------------------------------------
@@ -96,7 +94,7 @@ class _Checker(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
-        name = self._call_name(node)
+        name = self._direct_call_name(node)
         if name in _BANNED_BUILTINS:
             self._add(node, "PP002", f"call to `{name}()` is not allowed")
         elif name in _BANNED_REFLECTION:

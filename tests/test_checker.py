@@ -58,6 +58,23 @@ def test_pp003_getattr():
 def test_pp003_setattr():
     assert "PP003" in violations_for("setattr(obj, 'x', 1)")
 
+def test_method_names_matching_banned_builtins_are_allowed():
+    src = """\
+class Tool:
+    def dir(self) -> int:
+        return 1
+    def compile(self) -> int:
+        return 2
+    def getattr(self) -> int:
+        return 3
+
+def f(tool: Tool) -> int:
+    return tool.dir() + tool.compile() + tool.getattr()
+"""
+    codes = violations_for(src)
+    assert "PP002" not in codes
+    assert "PP003" not in codes
+
 def test_pp004_dunder_import():
     assert "PP004" in violations_for("__import__('os')")
 
@@ -67,6 +84,17 @@ def test_pp005_dynamic_type():
 def test_pp005_type_one_arg_ok():
     # type(x) for isinstance-style use is fine
     assert "PP005" not in violations_for("type(x)")
+
+def test_method_named_type_with_three_args_is_allowed():
+    src = """\
+class Factory:
+    def type(self, name: str, bases: int, attrs: int) -> int:
+        return 1
+
+def f(factory: Factory) -> int:
+    return factory.type("Foo", 1, 2)
+"""
+    assert "PP005" not in violations_for(src)
 
 
 # ---------------------------------------------------------------------------
