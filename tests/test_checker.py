@@ -194,6 +194,22 @@ def test_pp024_splat_in_call():
     src = "def f() -> None:\n    g(*lst)"
     assert "PP024" in violations_for(src)
 
+def test_starred_destructuring_assignment_is_not_pp024():
+    src = """\
+def f(xs: list[int]) -> int:
+    first, *rest = xs
+    return first
+"""
+    assert "PP024" not in violations_for(src)
+
+def test_starred_list_display_is_not_pp024():
+    src = """\
+def f(xs: list[int]) -> int:
+    ys = [0, *xs]
+    return ys[0]
+"""
+    assert "PP024" not in violations_for(src)
+
 
 # ---------------------------------------------------------------------------
 # PP025  del

@@ -103,6 +103,9 @@ class _Checker(ast.NodeVisitor):
             self._add(node, "PP004", "dynamic `__import__()` is not allowed; use static `import`")
         elif name == "type" and len(node.args) == 3:
             self._add(node, "PP005", "`type(name, bases, dict)` dynamic class creation is not allowed")
+        for arg in node.args:
+            if isinstance(arg, ast.Starred):
+                self._add(arg, "PP024", "starred splat in calls is not allowed; pass arguments explicitly")
         self.generic_visit(node)
 
     # -- dynamic namespace access --------------------------------------------
@@ -190,13 +193,6 @@ class _Checker(ast.NodeVisitor):
             self._add(node.vararg, "PP022", "`*args` (var-positional) is not allowed; use typed tuple parameters")
         if node.kwarg is not None:
             self._add(node.kwarg, "PP023", "`**kwargs` (var-keyword) is not allowed; use explicit keyword parameters")
-        self.generic_visit(node)
-
-    # -- star expressions in assignments -------------------------------------
-
-    def visit_Starred(self, node: ast.Starred) -> None:
-        # starred in function calls (e.g. f(*lst)) is dynamic dispatch
-        self._add(node, "PP024", "starred unpacking/splat in calls is not allowed; pass arguments explicitly")
         self.generic_visit(node)
 
     # -- del -----------------------------------------------------------------
