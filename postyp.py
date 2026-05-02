@@ -11,15 +11,17 @@ Design notes
 * Scalar dtypes mirror the array-api standard (data-apis.org) so that
   POST Python's numeric tower is compatible with NumPy, CuPy, JAX, etc.
 * Array[DType] / Array[DType, Shape(...)] is the compile-time array type.
-  At runtime it is a thin wrapper; the compiler replaces it with native
-  memory layouts.
-* DataFrame / LazyFrame / Series wrap narwhals types so that dataframe
-  code is backend-agnostic (pandas, polars, modin, …).
+  Layout qualifiers such as COrder, FOrder, and Strides describe native
+  memory layouts for compiled code.
+* DataFrame / LazyFrame / Series describe a typed logical dataframe model.
+  Interpreted compatibility mode can bridge to narwhals-compatible backends;
+  compiled mode is intended to lower to a native columnar runtime.
 """
 
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
 from typing import Any, ClassVar, Generic, Optional, Tuple, TypeVar, Union
 
 # ---------------------------------------------------------------------------
@@ -209,6 +211,67 @@ AnyShape = Shape()
 
 
 # ---------------------------------------------------------------------------
+# Array layout types
+# ---------------------------------------------------------------------------
+
+class ArrayLayout:
+    """Base class for POST Python array layout descriptors."""
+
+
+@dataclass(frozen=True)
+class _ContiguousOrder(ArrayLayout):
+    """A C- or Fortran-contiguous array layout."""
+
+    order: str
+
+    def __repr__(self) -> str:
+        return f"{self.order}Order"
+
+
+class Strides(ArrayLayout):
+    """Compile-time stride descriptor for Array.
+
+    Strides are measured in elements. ``None`` means the stride is dynamic
+    and must be supplied by the runtime array metadata.
+    """
+
+    strides: tuple[int | None, ...]
+
+    def __init__(self, *strides: int | None) -> None:
+        for stride in strides:
+            if stride is not None and not (
+                isinstance(stride, int) and not isinstance(stride, bool)
+            ):
+                raise TypeError(
+                    "Strides values must be integers or None, "
+                    f"got {stride!r}"
+                )
+        self.strides = strides
+
+    def __class_getitem__(cls, item: Any) -> "Strides":
+        if isinstance(item, tuple):
+            return cls(*item)
+        return cls(item)
+
+    @property
+    def ndim(self) -> int:
+        return len(self.strides)
+
+    def __repr__(self) -> str:
+        return f"Strides[{', '.join('?' if s is None else str(s) for s in self.strides)}]"
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, Strides) and self.strides == other.strides
+
+    def __hash__(self) -> int:
+        return hash(self.strides)
+
+
+COrder = _ContiguousOrder("C")
+FOrder = _ContiguousOrder("F")
+
+
+# ---------------------------------------------------------------------------
 # Array type
 # ---------------------------------------------------------------------------
 
@@ -237,30 +300,63 @@ class Array(Generic[DT]):
 
     dtype: ClassVar[type[DType]]
     shape: ClassVar[Shape]
+    layout: ClassVar[ArrayLayout]
 
     def __class_getitem__(cls, params: Any) -> type["Array[Any]"]:
         if not isinstance(params, tuple):
             params = (params,)
 
         if len(params) == 1:
-            dtype_param, shape_param = params[0], AnyShape
+            dtype_param, shape_param, layout_param = params[0], AnyShape, COrder
         elif len(params) == 2:
-            dtype_param, shape_param = params
+            dtype_param, second_param = params
+            if isinstance(second_param, Shape):
+                shape_param, layout_param = second_param, COrder
+            elif isinstance(second_param, ArrayLayout):
+                shape_param, layout_param = AnyShape, second_param
+            else:
+                raise TypeError(
+                    "Array second parameter must be a Shape or ArrayLayout, "
+                    f"got {type(second_param).__name__!r}"
+                )
+        elif len(params) == 3:
+            dtype_param, shape_param, layout_param = params
             if not isinstance(shape_param, Shape):
                 raise TypeError(
                     f"Array second parameter must be a Shape, got {type(shape_param).__name__!r}"
                 )
+            if not isinstance(layout_param, ArrayLayout):
+                raise TypeError(
+                    "Array third parameter must be an ArrayLayout, "
+                    f"got {type(layout_param).__name__!r}"
+                )
+            if (
+                isinstance(layout_param, Strides)
+                and shape_param.ndim is not None
+                and layout_param.ndim != shape_param.ndim
+            ):
+                raise TypeError(
+                    "Array Strides rank must match Shape rank, "
+                    f"got {layout_param.ndim} stride(s) for shape {shape_param!r}"
+                )
         else:
-            raise TypeError(f"Array takes 1 or 2 type parameters, got {len(params)}")
+            raise TypeError(f"Array takes 1 to 3 type parameters, got {len(params)}")
 
         if not (isinstance(dtype_param, type) and issubclass(dtype_param, DType)):
             raise TypeError(
                 f"Array first parameter must be a DType subclass, got {dtype_param!r}"
             )
 
-        ns = {"dtype": dtype_param, "shape": shape_param, "__orig_class__": cls}
+        ns = {
+            "dtype": dtype_param,
+            "shape": shape_param,
+            "layout": layout_param,
+            "__orig_class__": cls,
+        }
+        shape_name = "," + repr(shape_param) if shape_param is not AnyShape else ""
+        layout_name = "" if layout_param == COrder else "," + repr(layout_param)
         return type(
-            f"Array[{dtype_param.__name__}{',' + repr(shape_param) if shape_param is not AnyShape else ''}]",
+            f"Array[{dtype_param.__name__}{shape_name}{layout_name}]",
             (cls,),
             ns,
         )
@@ -289,7 +385,7 @@ FloatArray = Float64Array
 
 
 # ---------------------------------------------------------------------------
-# DataFrame / Series types (narwhals-based)
+# DataFrame / Series types
 # ---------------------------------------------------------------------------
 
 try:
@@ -347,7 +443,9 @@ def postyp_dtype_to_narwhals(dtype: type[DType]) -> Any:
 class DataFrame:
     """POST Python DataFrame type annotation.
 
-    Backend-agnostic; backed by narwhals at runtime.
+    Backend-agnostic logical dataframe type.  Interpreted compatibility mode
+    can wrap narwhals dataframes; compiled mode lowers supported operations to
+    the POST DataFrame runtime.
 
     Examples::
 
@@ -384,7 +482,7 @@ class DataFrame:
 class LazyFrame:
     """POST Python LazyFrame type annotation (deferred computation).
 
-    Backed by narwhals LazyFrame at runtime.
+    Represents an optimizable logical dataframe plan.
     """
 
     schema: ClassVar[Optional[Schema]] = None
@@ -429,8 +527,9 @@ __all__ = [
     "Int", "Float", "Complex",
     # All scalar dtypes
     "SCALAR_DTYPES",
-    # Shape
+    # Shape / layout
     "Shape", "AnyShape",
+    "ArrayLayout", "COrder", "FOrder", "Strides",
     # Array
     "Array",
     "BoolArray", "IntArray", "FloatArray",

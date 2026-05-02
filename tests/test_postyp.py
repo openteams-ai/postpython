@@ -11,6 +11,7 @@ from postyp import (
     Int, Float, Complex,
     DType, SCALAR_DTYPES,
     Shape, AnyShape,
+    COrder, FOrder, Strides,
     Array, FloatArray, Float64Array, IntArray,
     DataFrame, LazyFrame, Series,
 )
@@ -121,15 +122,34 @@ class TestArray:
     def test_array_dtype_param(self):
         A = Array[Float64]
         assert A.dtype is Float64
+        assert A.layout == COrder
 
     def test_array_with_shape(self):
         A = Array[Float64, Shape[3, 3]]
         assert A.dtype is Float64
         assert A.shape == Shape[3, 3]
+        assert A.layout == COrder
 
     def test_array_no_shape_has_any_shape(self):
         A = Array[Float64]
         assert A.shape == AnyShape
+
+    def test_array_with_fortran_order(self):
+        A = Array[Float64, Shape[3, 3], FOrder]
+        assert A.dtype is Float64
+        assert A.shape == Shape[3, 3]
+        assert A.layout == FOrder
+
+    def test_array_with_layout_without_shape(self):
+        A = Array[Float64, FOrder]
+        assert A.shape == AnyShape
+        assert A.layout == FOrder
+
+    def test_array_with_explicit_strides(self):
+        strides = Strides[None, 1]
+        A = Array[Float64, Shape[None, None], strides]
+        assert strides.strides == (None, 1)
+        assert A.layout == strides
 
     def test_convenience_alias(self):
         assert FloatArray.dtype is Float64
@@ -143,6 +163,18 @@ class TestArray:
     def test_bad_shape_raises(self):
         with pytest.raises(TypeError):
             Array[Float64, (3, 3)]  # tuple, not a Shape
+
+    def test_bad_layout_raises(self):
+        with pytest.raises(TypeError):
+            Array[Float64, Shape[3, 3], "C"]
+
+    def test_stride_rank_must_match_shape_rank(self):
+        with pytest.raises(TypeError):
+            Array[Float64, Shape[3, 3], Strides[1]]
+
+    def test_bad_stride_value_raises(self):
+        with pytest.raises(TypeError):
+            Strides["x"]
 
 
 # ---------------------------------------------------------------------------

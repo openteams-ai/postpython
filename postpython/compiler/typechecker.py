@@ -21,6 +21,7 @@ from postyp import (
     Complex64, Complex128,
     Str, Bytes,
     Array, Shape, AnyShape,
+    ArrayLayout, COrder, FOrder, Strides,
 )
 
 
@@ -44,9 +45,12 @@ class ResolvedAnnotation:
     """Compiler-facing annotation metadata."""
     dtype: Optional[type[DType]]
     shape: Shape = AnyShape
+    layout: ArrayLayout = COrder
     is_array: bool = False
     is_none: bool = False
     is_valid: bool = True
+    is_supported: bool = True
+    unsupported_reason: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -82,8 +86,55 @@ def _resolve_dtype_expr(node: ast.expr) -> Optional[type[DType]]:
     return None
 
 
-def _resolve_shape_expr(node: ast.expr) -> Shape:
+def _annotation_head(node: ast.expr) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    if isinstance(node, ast.Subscript):
+        return _annotation_head(node.value)
+    if isinstance(node, ast.Call):
+        return _annotation_head(node.func)
+    return None
+
+
+def _unsupported_annotation(reason: str) -> ResolvedAnnotation:
+    return ResolvedAnnotation(
+        dtype=None,
+        is_valid=True,
+        is_supported=False,
+        unsupported_reason=reason,
+    )
+
+
+def _is_schema_constructor(node: ast.expr, names: set[str]) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    if not isinstance(node.func, ast.Attribute):
+        return False
+    if node.func.attr != "with_schema":
+        return False
+    return _annotation_head(node.func.value) in names
+
+
+def _is_shape_expr(node: ast.expr) -> bool:
     if isinstance(node, ast.Name) and node.id == "AnyShape":
+        return True
+    if isinstance(node, ast.Attribute) and node.attr == "AnyShape":
+        return True
+    if isinstance(node, ast.Subscript):
+        base = node.value
+        return (
+            (isinstance(base, ast.Name) and base.id == "Shape")
+            or (isinstance(base, ast.Attribute) and base.attr == "Shape")
+        )
+    return False
+
+
+def _resolve_shape_expr(node: ast.expr) -> Optional[Shape]:
+    if isinstance(node, ast.Name) and node.id == "AnyShape":
+        return AnyShape
+    if isinstance(node, ast.Attribute) and node.attr == "AnyShape":
         return AnyShape
     if isinstance(node, ast.Subscript):
         base = node.value
@@ -99,12 +150,48 @@ def _resolve_shape_expr(node: ast.expr) -> Shape:
                         return AnyShape
                     if dim.value is None:
                         dims.append(None)
-                    elif isinstance(dim.value, int):
+                    elif isinstance(dim.value, int) and not isinstance(dim.value, bool):
                         dims.append(dim.value)
-                elif isinstance(dim, ast.Name) and dim.id == "None":
-                    dims.append(None)
+                    else:
+                        return None
+                else:
+                    return None
             return Shape(*dims) if dims else AnyShape
-    return AnyShape
+    return None
+
+
+def _resolve_layout_expr(node: ast.expr) -> Optional[ArrayLayout]:
+    if isinstance(node, ast.Name):
+        if node.id == "COrder":
+            return COrder
+        if node.id == "FOrder":
+            return FOrder
+    if isinstance(node, ast.Attribute):
+        if node.attr == "COrder":
+            return COrder
+        if node.attr == "FOrder":
+            return FOrder
+    if isinstance(node, ast.Subscript):
+        base = node.value
+        is_strides = (
+            (isinstance(base, ast.Name) and base.id == "Strides")
+            or (isinstance(base, ast.Attribute) and base.attr == "Strides")
+        )
+        if is_strides:
+            raw_strides = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+            strides: list[int | None] = []
+            for stride in raw_strides:
+                if isinstance(stride, ast.Constant):
+                    if stride.value is None:
+                        strides.append(None)
+                    elif isinstance(stride.value, int) and not isinstance(stride.value, bool):
+                        strides.append(stride.value)
+                    else:
+                        return None
+                else:
+                    return None
+            return Strides(*strides)
+    return None
 
 
 def resolve_annotation_info(node: ast.expr) -> ResolvedAnnotation:
@@ -114,6 +201,13 @@ def resolve_annotation_info(node: ast.expr) -> ResolvedAnnotation:
     element dtype plus shape metadata so the compiler can distinguish pointer
     values from scalar values.
     """
+    head = _annotation_head(node)
+
+    if _is_schema_constructor(node, {"DataFrame", "LazyFrame"}):
+        return _unsupported_annotation(
+            "POST DataFrame profile annotations are not lowered by this compiler yet"
+        )
+
     if isinstance(node, ast.Subscript):
         base = node.value
         is_array = (
@@ -122,11 +216,59 @@ def resolve_annotation_info(node: ast.expr) -> ResolvedAnnotation:
         )
         if is_array:
             parts = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+            if not 1 <= len(parts) <= 3:
+                return ResolvedAnnotation(dtype=None, is_array=True, is_valid=False)
             dtype = _resolve_dtype_expr(parts[0]) if parts else None
             if dtype is None:
                 return ResolvedAnnotation(dtype=None, is_array=True, is_valid=False)
-            shape = _resolve_shape_expr(parts[1]) if len(parts) > 1 else AnyShape
-            return ResolvedAnnotation(dtype=dtype, shape=shape, is_array=True)
+            shape = AnyShape
+            layout: ArrayLayout = COrder
+            if len(parts) == 2:
+                if _is_shape_expr(parts[1]):
+                    resolved_shape = _resolve_shape_expr(parts[1])
+                    if resolved_shape is None:
+                        return ResolvedAnnotation(dtype=dtype, is_array=True, is_valid=False)
+                    shape = resolved_shape
+                else:
+                    resolved_layout = _resolve_layout_expr(parts[1])
+                    if resolved_layout is None:
+                        return ResolvedAnnotation(dtype=dtype, is_array=True, is_valid=False)
+                    layout = resolved_layout
+            elif len(parts) == 3:
+                resolved_shape = _resolve_shape_expr(parts[1])
+                resolved_layout = _resolve_layout_expr(parts[2])
+                if resolved_shape is None or resolved_layout is None:
+                    return ResolvedAnnotation(dtype=dtype, is_array=True, is_valid=False)
+                shape = resolved_shape
+                layout = resolved_layout
+            if (
+                isinstance(layout, Strides)
+                and shape.ndim is not None
+                and layout.ndim != shape.ndim
+            ):
+                return ResolvedAnnotation(dtype=dtype, is_array=True, is_valid=False)
+            return ResolvedAnnotation(
+                dtype=dtype,
+                shape=shape,
+                layout=layout,
+                is_array=True,
+            )
+        if head == "Series":
+            parts = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+            if len(parts) != 1 or _resolve_dtype_expr(parts[0]) is None:
+                return ResolvedAnnotation(dtype=None, is_valid=False)
+            return _unsupported_annotation(
+                "POST DataFrame profile annotations are not lowered by this compiler yet"
+            )
+        if head in {"Optional", "Union", "Tuple", "List"}:
+            return _unsupported_annotation(
+                f"`{head}` annotations are valid POST Python but are not lowered by this compiler yet"
+            )
+
+    if head in {"DataFrame", "LazyFrame"}:
+        return _unsupported_annotation(
+            "POST DataFrame profile annotations are not lowered by this compiler yet"
+        )
 
     dtype = _resolve_dtype_expr(node)
     if dtype is not None:

@@ -25,7 +25,7 @@ from typing import Optional, Union
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-from postyp import DType, AnyShape, Shape
+from postyp import DType, AnyShape, Shape, ArrayLayout, COrder
 
 
 # ---------------------------------------------------------------------------
@@ -39,14 +39,16 @@ class Value:
     dtype: type[DType]
     # For array values, shape carries dimension info.
     shape: Shape = field(default_factory=lambda: AnyShape)
+    layout: ArrayLayout = COrder
     is_array: bool = False
     is_output: bool = False
 
     def __repr__(self) -> str:
         shape_str = f", {self.shape}" if self.shape is not AnyShape else ""
+        layout_str = f", {self.layout}" if self.layout != COrder else ""
         array_str = "[]" if self.is_array else ""
         output_str = "&" if self.is_output else ""
-        return f"%{self.name}: {output_str}{self.dtype.__name__}{array_str}{shape_str}"
+        return f"%{self.name}: {output_str}{self.dtype.__name__}{array_str}{shape_str}{layout_str}"
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +238,7 @@ class Param:
     name: str
     dtype: type[DType]
     shape: Shape = field(default_factory=lambda: AnyShape)
+    layout: ArrayLayout = COrder
     is_array: bool = False
     is_output: bool = False
 

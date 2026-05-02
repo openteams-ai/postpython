@@ -33,7 +33,19 @@ from .typechecker import (
 
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-from postyp import DType, Int64, Float64, Bool, AnyShape, Shape, Array
+from postyp import (
+    DType,
+    Int64,
+    Float64,
+    Bool,
+    AnyShape,
+    Shape,
+    Array,
+    ArrayLayout,
+    COrder,
+    FOrder,
+    Strides,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +246,7 @@ class FunctionLifter:
     def _unsupported_feature_error(self, node: ast.AST, feature: str) -> None:
         self._compiler_error(
             node,
-            "PP101",
+            "PP900",
             f"{feature} is valid POST Python but is not lowered by this compiler yet",
         )
 
@@ -263,6 +275,13 @@ class FunctionLifter:
                     arg,
                     f"unsupported annotation for parameter `{arg.arg}` in `{node.name}`",
                 )
+            if annotation is not None and not annotation.is_supported:
+                self._compiler_error(
+                    arg,
+                    "PP900",
+                    annotation.unsupported_reason
+                    or f"annotation for parameter `{arg.arg}` in `{node.name}` is not lowered by this compiler yet",
+                )
             if annotation is not None and annotation.is_none:
                 self._annotation_error(
                     arg,
@@ -271,11 +290,12 @@ class FunctionLifter:
             dtype = annotation.dtype if annotation and annotation.dtype is not None else Int64
             is_array = bool(annotation and annotation.is_array)
             shape = annotation.shape if annotation else AnyShape
+            layout = annotation.layout if annotation else COrder
             is_output = False
             if parsed_gufunc_sig is not None:
                 output_index = user_arg_index - len(parsed_gufunc_sig.inputs)
                 is_output = 0 <= output_index < len(parsed_gufunc_sig.outputs)
-            params.append(Param(arg.arg, dtype, shape, is_array, is_output))
+            params.append(Param(arg.arg, dtype, shape, layout, is_array, is_output))
             param_types[arg.arg] = dtype
 
             if is_array and parsed_gufunc_sig is not None:
@@ -294,6 +314,13 @@ class FunctionLifter:
             self._annotation_error(
                 node,
                 f"unsupported return annotation in `{node.name}`",
+            )
+        if return_info is not None and not return_info.is_supported:
+            self._compiler_error(
+                node,
+                "PP900",
+                return_info.unsupported_reason
+                or f"return annotation in `{node.name}` is not lowered by this compiler yet",
             )
         returns_array = bool(return_info and return_info.is_array)
         return_dtype = (
@@ -314,6 +341,7 @@ class FunctionLifter:
                 self._implicit_array_return,
                 return_dtype or Float64,
                 return_info.shape if return_info else AnyShape,
+                return_info.layout if return_info else COrder,
                 True,
                 True,
             )
@@ -346,7 +374,7 @@ class FunctionLifter:
 
         # Seed locals with parameter values.
         for p in params:
-            v = Value(p.name, p.dtype, p.shape, p.is_array, p.is_output)
+            v = Value(p.name, p.dtype, p.shape, p.layout, p.is_array, p.is_output)
             self._locals[p.name] = v
         for p in core_dim_params:
             self._locals[p.name] = Value(p.name, p.dtype)
@@ -414,14 +442,14 @@ class FunctionLifter:
 
     def _lower_break(self, stmt: ast.Break) -> None:
         if not self._loop_stack:
-            self._compiler_error(stmt, "PP101", "`break` used outside a loop")
+            self._compiler_error(stmt, "PP900", "`break` used outside a loop")
             return
         break_label, _ = self._loop_stack[-1]
         self._builder.terminate(Branch(break_label))
 
     def _lower_continue(self, stmt: ast.Continue) -> None:
         if not self._loop_stack:
-            self._compiler_error(stmt, "PP101", "`continue` used outside a loop")
+            self._compiler_error(stmt, "PP900", "`continue` used outside a loop")
             return
         _, continue_label = self._loop_stack[-1]
         self._builder.terminate(Branch(continue_label))
@@ -446,6 +474,7 @@ class FunctionLifter:
                     val,
                     dtype=annotation.dtype,
                     shape=annotation.shape,
+                    layout=annotation.layout,
                     is_array=annotation.is_array,
                 )
             elif isinstance(stmt.target, ast.Subscript):
@@ -466,6 +495,7 @@ class FunctionLifter:
         *,
         dtype: type[DType] | None = None,
         shape: Shape = AnyShape,
+        layout: ArrayLayout = COrder,
         is_array: bool = False,
     ) -> Value:
         existing = self._locals.get(name)
@@ -473,7 +503,7 @@ class FunctionLifter:
             self._builder.emit(AssignValue(existing, val))
             return existing
 
-        target = Value(name, dtype or val.dtype, shape, is_array)
+        target = Value(name, dtype or val.dtype, shape, layout, is_array)
         self._builder.emit(AssignValue(target, val, declare=True))
         self._locals[name] = target
         return target
@@ -825,6 +855,86 @@ class FunctionLifter:
         indices.reverse()
         return current.id, indices
 
+    def _const_int_value(self, value: int, prefix: str = "dim") -> Value:
+        result = self._builder.make_value(prefix, Int64)
+        self._builder.emit(Const(result, value))
+        return result
+
+    def _dim_value_for_axis(self, name: str, arr: Value, axis: int) -> Optional[Value]:
+        dims = self._array_dims.get(name)
+        if dims and axis < len(dims):
+            return dims[axis]
+        if arr.shape is not AnyShape and axis < len(arr.shape.dims):
+            dim = arr.shape.dims[axis]
+            if dim is not None:
+                return self._const_int_value(dim)
+        return None
+
+    def _mul_values(self, values: list[Value]) -> Value:
+        if not values:
+            return self._const_int_value(1)
+        result = values[0]
+        for value in values[1:]:
+            next_result = self._builder.make_value("stride", Int64)
+            self._builder.emit(BinOpInstr(next_result, BinOp.MUL, result, value))
+            result = next_result
+        return result
+
+    def _array_stride_values(
+        self,
+        name: str,
+        arr: Value,
+        ndim: int,
+        node: ast.AST,
+    ) -> Optional[list[Value]]:
+        layout = arr.layout
+
+        if isinstance(layout, Strides):
+            if len(layout.strides) < ndim:
+                self._compiler_error(
+                    node,
+                    "PP300",
+                    f"array `{name}` has {len(layout.strides)} stride value(s), "
+                    f"but {ndim} index value(s) were used",
+                )
+                return None
+            if any(stride is None for stride in layout.strides[:ndim]):
+                self._compiler_error(
+                    node,
+                    "PP900",
+                    "dynamic array strides require runtime stride metadata, "
+                    "which this compiler does not lower yet",
+                )
+                return None
+            return [
+                self._const_int_value(stride, "stride")
+                for stride in layout.strides[:ndim]
+                if stride is not None
+            ]
+
+        dim_values = [self._dim_value_for_axis(name, arr, axis) for axis in range(ndim)]
+        if any(dim is None for dim in dim_values):
+            self._compiler_error(
+                node,
+                "PP900",
+                "dynamic multidimensional array indexing requires runtime "
+                "shape/stride metadata, which this compiler does not lower yet",
+            )
+            return None
+        dims = [dim for dim in dim_values if dim is not None]
+
+        if layout == COrder:
+            return [self._mul_values(dims[axis + 1:]) for axis in range(ndim)]
+        if layout == FOrder:
+            return [self._mul_values(dims[:axis]) for axis in range(ndim)]
+
+        self._compiler_error(
+            node,
+            "PP900",
+            f"array layout `{layout!r}` is not lowered by this compiler yet",
+        )
+        return None
+
     def _flatten_array_index(self, name: str, index_nodes: list[ast.expr]) -> tuple[Value, Value] | None:
         arr = self._locals.get(name)
         if arr is None:
@@ -838,16 +948,25 @@ class FunctionLifter:
         if len(indices) == 1:
             return arr, indices[0]
 
-        dims = self._array_dims.get(name, [])
-        if len(dims) < 2:
+        strides = self._array_stride_values(name, arr, len(indices), index_nodes[0])
+        if strides is None:
             return None
-        stride = dims[1]
-        flat = self._builder.make_value("idx", Int64)
-        self._builder.emit(BinOpInstr(flat, BinOp.MUL, indices[0], stride))
-        for index in indices[1:]:
-            next_flat = self._builder.make_value("idx", Int64)
-            self._builder.emit(BinOpInstr(next_flat, BinOp.ADD, flat, index))
-            flat = next_flat
+
+        flat: Value | None = None
+        for index, stride in zip(indices, strides):
+            if isinstance(stride, Value):
+                term = self._builder.make_value("idx", Int64)
+                self._builder.emit(BinOpInstr(term, BinOp.MUL, index, stride))
+            else:
+                term = index
+            if flat is None:
+                flat = term
+            else:
+                next_flat = self._builder.make_value("idx", Int64)
+                self._builder.emit(BinOpInstr(next_flat, BinOp.ADD, flat, term))
+                flat = next_flat
+        if flat is None:
+            return None
         return arr, flat
 
     def _lower_subscript_load(self, node: ast.Subscript) -> Optional[Value]:
@@ -876,6 +995,11 @@ class FunctionLifter:
 
     def _resolve_len_arg(self, node: ast.expr) -> Optional[Value]:
         if isinstance(node, ast.Name):
+            arr = self._locals.get(node.id)
+            if arr is not None:
+                dim = self._dim_value_for_axis(node.id, arr, 0)
+                if dim is not None:
+                    return dim
             dims = self._array_dims.get(node.id)
             if dims:
                 return dims[0]
@@ -884,6 +1008,11 @@ class FunctionLifter:
             if root is None:
                 return None
             name, index_nodes = root
+            arr = self._locals.get(name)
+            if arr is not None:
+                dim = self._dim_value_for_axis(name, arr, len(index_nodes))
+                if dim is not None:
+                    return dim
             dims = self._array_dims.get(name)
             if dims and len(index_nodes) < len(dims):
                 return dims[len(index_nodes)]
@@ -934,6 +1063,44 @@ def compile_source(source: str, filename: str = "<unknown>") -> tuple[Module, li
     stem = Path(filename).stem if filename != "<unknown>" else "module"
     module = Module(name=stem)
     errors = []
+
+    for index, node in enumerate(tree.body):
+        if isinstance(node, ast.Expr):
+            if (
+                index == 0
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+            ):
+                continue
+            errors.append(TypeError_PP(
+                code="PP900",
+                message="top-level executable expressions are not lowered by this compiler yet",
+                lineno=node.lineno,
+                col_offset=node.col_offset,
+            ))
+        elif isinstance(node, ast.ClassDef):
+            errors.append(TypeError_PP(
+                code="PP900",
+                message="class/dataclass definitions are valid POST Python but are not lowered by this compiler yet",
+                lineno=node.lineno,
+                col_offset=node.col_offset,
+            ))
+        elif isinstance(
+            node,
+            (
+                ast.If,
+                ast.For,
+                ast.While,
+                ast.With,
+                ast.Try,
+            ),
+        ) or (hasattr(ast, "Match") and isinstance(node, ast.Match)):
+            errors.append(TypeError_PP(
+                code="PP900",
+                message="top-level executable statements are not lowered by this compiler yet",
+                lineno=node.lineno,
+                col_offset=node.col_offset,
+            ))
 
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef):

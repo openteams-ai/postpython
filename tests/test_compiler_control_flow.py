@@ -77,7 +77,7 @@ def f(x: int) -> int:
 """
 
     errors = compile_errors(source)
-    assert [error.code for error in errors] == ["PP101"]
+    assert [error.code for error in errors] == ["PP900"]
     assert "`with` statements" in errors[0].message
 
 
@@ -92,7 +92,7 @@ def f(x: int) -> int:
 """
 
     errors = compile_errors(source)
-    assert [error.code for error in errors] == ["PP101"]
+    assert [error.code for error in errors] == ["PP900"]
     assert "`try` statements" in errors[0].message
 
 
@@ -107,7 +107,7 @@ def f(x: int) -> int:
 """
 
     errors = compile_errors(source)
-    assert [error.code for error in errors] == ["PP101"]
+    assert [error.code for error in errors] == ["PP900"]
     assert "`match` statements" in errors[0].message
 
 
@@ -119,7 +119,7 @@ def f(n: int) -> int:
 """
 
     errors = compile_errors(source)
-    assert [error.code for error in errors] == ["PP101"]
+    assert [error.code for error in errors] == ["PP900"]
     assert "comprehensions" in errors[0].message
 
 
@@ -135,5 +135,5 @@ def f(xs: Array[Int64]) -> int:
 """
 
     errors = compile_errors(source)
-    assert [error.code for error in errors] == ["PP101"]
+    assert [error.code for error in errors] == ["PP900"]
     assert "`for` loops over non-range iterables" in errors[0].message
