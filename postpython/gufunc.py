@@ -1,29 +1,33 @@
-"""POST Python @gufunc decorator.
+"""POST Python vectorized-function decorators.
 
-Marks a function as a generalized ufunc with a NumPy-compatible broadcast
-signature.  At runtime (interpreted mode) the decorator wraps the function
-in a pure-Python broadcast loop so it remains callable and testable without
-the AOT compiler.  When the POST Python compiler processes the source file it
-recognises the decorator and lowers the function to the NumPy gufunc C ABI.
+The public decorators intentionally follow Numba's naming:
+
+* ``@vectorize`` marks a scalar element-wise kernel.
+* ``@guvectorize`` marks a generalized ufunc with a NumPy-compatible layout
+  signature.
+
+At runtime (interpreted mode) the decorators wrap the function in a Python
+broadcast loop so it remains callable and testable without the AOT compiler.
+When the POST Python compiler processes the source file it recognises the
+decorators and lowers them to the NumPy ufunc/gufunc C ABI.
 
 Usage::
 
     from postyp import Array, Float64
-    from postpython.gufunc import gufunc
+    from postpython import guvectorize
 
-    @gufunc("(n),(n)->()")
-    def dot(a: Array[Float64], b: Array[Float64]) -> Float64:
+    @guvectorize([], "(n),(n)->()")
+    def dot(a: Array[Float64], b: Array[Float64], out: Array[Float64]) -> None:
         result: Float64 = 0.0
         for i in range(len(a)):
             result += a[i] * b[i]
-        return result
+        out[0] = result
 """
 
 from __future__ import annotations
 
 import functools
 import inspect
-import re
 from typing import Any, Callable, get_type_hints
 
 from .compiler.ir import GUFuncSignature
@@ -109,6 +113,23 @@ def _output_dtypes(
     return dtypes + [None] * (n_out - len(dtypes))
 
 
+def _scalar_ufunc_signature(n_inputs: int) -> str:
+    """Return the gufunc layout signature for an element-wise ufunc."""
+    return ",".join("()" for _ in range(n_inputs)) + "->()"
+
+
+def _signature_from_args(args: tuple[Any, ...], kwargs: dict[str, Any]) -> str | None:
+    """Extract a NumPy gufunc layout signature from decorator arguments."""
+    for arg in args:
+        if isinstance(arg, str) and "->" in arg:
+            return arg
+    for key in ("signature", "layout", "sig"):
+        value = kwargs.get(key)
+        if isinstance(value, str) and "->" in value:
+            return value
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Runtime broadcast loop (interpreted mode)
 # ---------------------------------------------------------------------------
@@ -187,12 +208,6 @@ def _broadcast_call(fn: Callable, sig: GUFuncSignature, args: tuple) -> Any:
                     f"cannot infer gufunc output core dimension {exc.args[0]!r}"
                 ) from exc
 
-        if kernel_expects_outputs and any(not shape for shape in output_core_shapes):
-            raise TypeError(
-                "interpreted @gufunc does not support scalar write-through "
-                "output parameters; return scalar output values instead"
-            )
-
         broadcast_inputs = [
             np.broadcast_to(arr, out_batch_shape + (arr.shape[-nc:] if nc else ()))
             for arr, nc in zip(arrays, n_core_in)
@@ -219,13 +234,24 @@ def _broadcast_call(fn: Callable, sig: GUFuncSignature, args: tuple) -> Any:
 
         # Iterate over batch indices and call the scalar/core Python kernel.
         core_slices = [((slice(None),) * nc) for nc in n_core_in]
+
+        def output_view(out: Any, idx: tuple[int, ...], nc: int) -> Any:
+            if nc:
+                return out[idx + ((slice(None),) * nc)]
+            flat = out.reshape(-1)
+            if out_batch_shape:
+                flat_index = np.ravel_multi_index(idx, out_batch_shape)
+            else:
+                flat_index = 0
+            return flat[flat_index : flat_index + 1]
+
         for idx in np.ndindex(out_batch_shape):
             call_inputs = tuple(
                 arr[idx + core_slice] if nc else arr[idx]
                 for arr, nc, core_slice in zip(broadcast_inputs, n_core_in, core_slices)
             )
             call_outputs = tuple(
-                out[idx + ((slice(None),) * nc)] if nc else out[idx]
+                output_view(out, idx, nc)
                 for out, nc in zip(results, n_core_out)
             ) if kernel_expects_outputs else ()
             ret = fn(*(call_inputs + call_outputs))
@@ -251,7 +277,7 @@ def _broadcast_call(fn: Callable, sig: GUFuncSignature, args: tuple) -> Any:
 # ---------------------------------------------------------------------------
 
 class GUFuncWrapper:
-    """Wraps a POST Python function decorated with @gufunc.
+    """Wraps a POST Python function decorated as a ufunc/gufunc.
 
     Attributes
     ----------
@@ -260,19 +286,34 @@ class GUFuncWrapper:
     __pp_gufunc_sig__ : parsed GUFuncSignature
     """
 
-    def __init__(self, fn: Callable, sig_str: str) -> None:
+    def __init__(
+        self,
+        fn: Callable,
+        sig_str: str,
+        *,
+        decorator_name: str = "guvectorize",
+        type_signatures: Any = None,
+        options: dict[str, Any] | None = None,
+    ) -> None:
         self.__wrapped__         = fn
         self.__pp_sig__          = sig_str
         self.__pp_gufunc_sig__   = parse_gufunc_sig(sig_str)
+        self.__pp_decorator__    = decorator_name
+        self.__pp_type_signatures__ = type_signatures
+        self.__pp_options__      = dict(options or {})
         functools.update_wrapper(self, fn)
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        if kwargs:
+            raise TypeError(
+                f"{self.__pp_decorator__} wrappers do not accept keyword calls "
+                "in interpreted mode yet"
+            )
         return _broadcast_call(self.__wrapped__, self.__pp_gufunc_sig__, args)
 
     def __repr__(self) -> str:
-        return f"<gufunc {self.__wrapped__.__name__!r} sig={self.__pp_sig__!r}>"
+        return f"<{self.__pp_decorator__} {self.__wrapped__.__name__!r} sig={self.__pp_sig__!r}>"
 
-    # Provide a numpy gufunc if numpy is available.
     def as_numpy_gufunc(self) -> Any:
         """Return a numpy.vectorize wrapper with the gufunc signature."""
         try:
@@ -282,26 +323,98 @@ class GUFuncWrapper:
             raise ImportError("NumPy is required for as_numpy_gufunc()")
 
 
+class VectorizeWrapper(GUFuncWrapper):
+    """Wraps a scalar element-wise function decorated with @vectorize."""
+
+    def __init__(
+        self,
+        fn: Callable,
+        *,
+        type_signatures: Any = None,
+        options: dict[str, Any] | None = None,
+    ) -> None:
+        sig_str = _scalar_ufunc_signature(len(_positional_params(fn)))
+        super().__init__(
+            fn,
+            sig_str,
+            decorator_name="vectorize",
+            type_signatures=type_signatures,
+            options=options,
+        )
+
+    def as_numpy_ufunc(self) -> Any:
+        """Return a numpy.vectorize wrapper for interpreted-mode use."""
+        try:
+            import numpy as np
+            return np.vectorize(self.__wrapped__)
+        except ImportError:
+            raise ImportError("NumPy is required for as_numpy_ufunc()")
+
+
 # ---------------------------------------------------------------------------
-# Decorator
+# Decorators
 # ---------------------------------------------------------------------------
+
+def vectorize(*args: Any, **kwargs: Any) -> Callable[[Callable], VectorizeWrapper] | VectorizeWrapper:
+    """Numba-compatible scalar ufunc decorator.
+
+    The reference interpreter accepts Numba-style signature lists and options
+    for source compatibility, but uses POST Python annotations as the
+    normative type information.
+    """
+    if args and callable(args[0]) and len(args) == 1 and not kwargs:
+        return VectorizeWrapper(args[0])
+
+    type_signatures = args[0] if args else None
+    options = dict(kwargs)
+
+    def decorator(fn: Callable) -> VectorizeWrapper:
+        return VectorizeWrapper(fn, type_signatures=type_signatures, options=options)
+
+    return decorator
+
+
+def guvectorize(*args: Any, **kwargs: Any) -> Callable[[Callable], GUFuncWrapper]:
+    """Numba-compatible generalized ufunc decorator.
+
+    Accepted forms include ``@guvectorize("(n)->(n)")`` and
+    ``@guvectorize([signature_types], "(n)->(n)", target="cpu")``.
+    Type signature objects are accepted for compatibility and stored for
+    introspection; POST Python annotations remain the source of truth.
+    """
+    sig_str = _signature_from_args(args, kwargs)
+    if sig_str is None:
+        raise TypeError("@guvectorize requires a NumPy gufunc layout signature")
+
+    try:
+        parse_gufunc_sig(sig_str)
+    except ValueError as exc:
+        raise ValueError(f"@guvectorize: invalid signature {sig_str!r}: {exc}") from exc
+
+    type_signatures = args[0] if args and not (
+        isinstance(args[0], str) and "->" in args[0]
+    ) else None
+    options = dict(kwargs)
+
+    def decorator(fn: Callable) -> GUFuncWrapper:
+        return GUFuncWrapper(
+            fn,
+            sig_str,
+            decorator_name="guvectorize",
+            type_signatures=type_signatures,
+            options=options,
+        )
+
+    return decorator
+
 
 def gufunc(signature: str) -> Callable[[Callable], GUFuncWrapper]:
-    """Decorator that marks a function as a POST Python generalized ufunc.
+    """Legacy alias for POST Python generalized ufuncs.
 
-    Parameters
-    ----------
-    signature : str
-        NumPy-style gufunc signature, e.g. ``"(n),(n)->()"`` for a dot
-        product, ``"(m,k),(k,n)->(m,n)"`` for matrix multiply.
-
-    Returns
-    -------
-    GUFuncWrapper
-        A callable that behaves like the original function for scalar inputs
-        and broadcasts over array inputs (using NumPy if available).  The
-        POST Python compiler recognises `GUFuncWrapper` and lowers it to the
-        NumPy C ufunc ABI.
+    New code should prefer ``@vectorize`` for scalar element-wise kernels and
+    ``@guvectorize`` for generalized ufuncs.  The alias remains for existing
+    POST Python sources that used scalar-return gufuncs before the Numba-shaped
+    decorators were standardized.
 
     Examples
     --------
@@ -324,6 +437,16 @@ def gufunc(signature: str) -> Callable[[Callable], GUFuncWrapper]:
         raise ValueError(f"@gufunc: invalid signature {signature!r}: {exc}") from exc
 
     def decorator(fn: Callable) -> GUFuncWrapper:
-        return GUFuncWrapper(fn, signature)
+        return GUFuncWrapper(fn, signature, decorator_name="gufunc")
 
     return decorator
+
+
+__all__ = [
+    "GUFuncWrapper",
+    "VectorizeWrapper",
+    "gufunc",
+    "guvectorize",
+    "parse_gufunc_sig",
+    "vectorize",
+]

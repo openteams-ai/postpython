@@ -311,11 +311,11 @@ def emit_function(fn: Function, em: CEmitter, symbol_map: dict[str, str] | None 
 
 
 # ---------------------------------------------------------------------------
-# GUFunc emission (NumPy ufunc protocol)
+# UFunc/GUFunc emission (NumPy ufunc protocol)
 # ---------------------------------------------------------------------------
 
 def emit_gufunc(fn: GUFunc, em: CEmitter, symbol_map: dict[str, str] | None = None) -> None:
-    """Emit the inner scalar function and the NumPy ufunc wrapper."""
+    """Emit the inner kernel and the NumPy ufunc/gufunc wrapper."""
     sig = fn.gufunc_sig
     if sig is None:
         emit_function(fn, em, symbol_map)

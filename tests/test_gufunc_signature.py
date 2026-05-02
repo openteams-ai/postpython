@@ -3,7 +3,7 @@
 import pytest
 
 from postpython.compiler.frontend import compile_source, parse_gufunc_sig
-from postpython.gufunc import gufunc
+from postpython.gufunc import gufunc, guvectorize
 
 
 @pytest.mark.parametrize(
@@ -48,6 +48,14 @@ def test_gufunc_decorator_rejects_invalid_signature():
         @gufunc("(N)->()")
         def identity(x: int) -> int:
             return x
+
+
+def test_guvectorize_decorator_rejects_invalid_signature():
+    with pytest.raises(ValueError, match="@guvectorize: invalid signature"):
+
+        @guvectorize([], "(N)->()")
+        def identity(x: int, out: int) -> None:
+            out = x
 
 
 def test_compile_source_reports_invalid_gufunc_signature():

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ast
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -210,10 +211,12 @@ class FunctionLifter:
         node: ast.FunctionDef,
         module: Module,
         gufunc_sig: Optional[str] = None,
+        ufunc_kind: Optional[str] = None,
     ) -> None:
         self._node = node
         self._module = module
         self._gufunc_sig = gufunc_sig
+        self._ufunc_kind = ufunc_kind
         self._locals: dict[str, Value] = {}  # name → current SSA Value
         self._array_dims: dict[str, list[Value]] = {}
         self._implicit_array_return: str | None = None
@@ -330,6 +333,42 @@ class FunctionLifter:
             if return_info is None or return_info.is_none
             else return_info.dtype
         )
+
+        if parsed_gufunc_sig is not None and self._ufunc_kind == "vectorize":
+            if any(param.is_array for param in params):
+                self._compiler_error(
+                    node,
+                    "PP100",
+                    "@vectorize kernels must take scalar parameters; use @guvectorize for core array arguments",
+                )
+            if returns_array or return_dtype is None:
+                self._compiler_error(
+                    node,
+                    "PP100",
+                    "@vectorize kernels must return a scalar dtype",
+                )
+
+        if parsed_gufunc_sig is not None and self._ufunc_kind == "guvectorize":
+            output_param_count = max(0, len(params) - len(parsed_gufunc_sig.inputs))
+            if output_param_count != len(parsed_gufunc_sig.outputs):
+                self._compiler_error(
+                    node,
+                    "PP100",
+                    "@guvectorize kernels must declare one trailing output parameter for each output in the layout signature",
+                )
+            for param in params[len(parsed_gufunc_sig.inputs):]:
+                if not param.is_array:
+                    self._compiler_error(
+                        node,
+                        "PP100",
+                        f"@guvectorize output parameter `{param.name}` must be annotated as Array[...]",
+                    )
+            if return_dtype is not None or returns_array:
+                self._compiler_error(
+                    node,
+                    "PP100",
+                    "@guvectorize kernels must return None and write results through output parameters",
+                )
 
         if parsed_gufunc_sig is not None and returns_array:
             output_index = len(params) - len(parsed_gufunc_sig.inputs)
@@ -1045,24 +1084,58 @@ class FunctionLifter:
 # Module builder
 # ---------------------------------------------------------------------------
 
-_GUFUNC_DECORATOR = "gufunc"
+_UFUNC_DECORATORS = frozenset({"vectorize", "guvectorize", "gufunc"})
 
 
-def _extract_gufunc_sig(decorator: ast.expr) -> Optional[str]:
-    """Extract the signature string from a @gufunc("...") decorator node."""
-    if isinstance(decorator, ast.Call):
-        if (
-            isinstance(decorator.func, ast.Name)
-            and decorator.func.id == _GUFUNC_DECORATOR
-        ):
-            if decorator.args and isinstance(decorator.args[0], ast.Constant):
-                return str(decorator.args[0].value)
-        if (
-            isinstance(decorator.func, ast.Attribute)
-            and decorator.func.attr == _GUFUNC_DECORATOR
-        ):
-            if decorator.args and isinstance(decorator.args[0], ast.Constant):
-                return str(decorator.args[0].value)
+@dataclass(frozen=True)
+class _UFuncDecorator:
+    kind: str
+    signature: str | None = None
+
+
+def _decorator_name(decorator: ast.expr) -> str | None:
+    target = decorator.func if isinstance(decorator, ast.Call) else decorator
+    if isinstance(target, ast.Name):
+        return target.id
+    if isinstance(target, ast.Attribute):
+        return target.attr
+    return None
+
+
+def _constant_string(node: ast.expr) -> str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
+
+
+def _extract_layout_signature(call: ast.Call) -> str | None:
+    for arg in call.args:
+        value = _constant_string(arg)
+        if value is not None and "->" in value:
+            return value
+    for keyword in call.keywords:
+        if keyword.arg in {"signature", "layout", "sig"}:
+            value = _constant_string(keyword.value)
+            if value is not None and "->" in value:
+                return value
+    return None
+
+
+def _scalar_ufunc_signature(node: ast.FunctionDef) -> str:
+    n_inputs = sum(1 for arg in node.args.args if arg.arg not in {"self", "cls"})
+    return ",".join("()" for _ in range(n_inputs)) + "->()"
+
+
+def _extract_ufunc_decorator(node: ast.FunctionDef) -> _UFuncDecorator | None:
+    for decorator in node.decorator_list:
+        name = _decorator_name(decorator)
+        if name not in _UFUNC_DECORATORS:
+            continue
+        if name == "vectorize":
+            return _UFuncDecorator("vectorize", _scalar_ufunc_signature(node))
+        if isinstance(decorator, ast.Call):
+            return _UFuncDecorator(name, _extract_layout_signature(decorator))
+        return _UFuncDecorator(name, None)
     return None
 
 
@@ -1131,13 +1204,17 @@ def compile_source(source: str, filename: str = "<unknown>") -> tuple[Module, li
 
     for node in tree.body:
         if isinstance(node, ast.FunctionDef):
-            # Check for @gufunc decorator.
-            gufunc_sig: Optional[str] = None
-            for dec in node.decorator_list:
-                sig = _extract_gufunc_sig(dec)
-                if sig is not None:
-                    gufunc_sig = sig
-                    break
+            ufunc_decorator = _extract_ufunc_decorator(node)
+            gufunc_sig = ufunc_decorator.signature if ufunc_decorator else None
+            ufunc_kind = ufunc_decorator.kind if ufunc_decorator else None
+            if ufunc_decorator is not None and gufunc_sig is None:
+                errors.append(TypeError_PP(
+                    code="PP100",
+                    message=f"@{ufunc_kind} requires a NumPy gufunc layout signature",
+                    lineno=node.lineno,
+                    col_offset=node.col_offset,
+                ))
+                continue
             if gufunc_sig is not None:
                 try:
                     parse_gufunc_sig(gufunc_sig)
@@ -1150,7 +1227,7 @@ def compile_source(source: str, filename: str = "<unknown>") -> tuple[Module, li
                     ))
                     continue
 
-            lifter = FunctionLifter(node, module, gufunc_sig)
+            lifter = FunctionLifter(node, module, gufunc_sig, ufunc_kind)
             fn = lifter.lift()
             module.add_function(fn)
             errors.extend(lifter.errors)

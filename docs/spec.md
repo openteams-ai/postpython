@@ -55,7 +55,7 @@ Conformance is intentionally modular.  A compiler may claim conformance to one o
 | **POST Core** | Scalar types, functions, modules, structs/dataclasses, control flow, type checking, and native object/shared-library/executable output. |
 | **POST Array** | POST Core plus `Array[DType, Shape]`, array indexing, array allocation, shape checking, array iteration, and array-compatible scalar math. |
 | **POST DataFrame** | POST Core plus `Series`, `DataFrame`, `LazyFrame`, typed schemas, and the standard dataframe algebra defined by this specification. |
-| **POST Gufunc ABI** | POST Array plus generalized ufunc signature checking, interpreted-mode behavior, and the native gufunc ABI. |
+| **POST Ufunc ABI** | POST Array plus Numba-shaped `@vectorize`/`@guvectorize` decorators, generalized ufunc signature checking, interpreted-mode behavior, and the native ufunc/gufunc ABI. |
 | **POST CPython Extension** | POST Core plus CPython extension-module output and CPython heap-boundary semantics. |
 | **POST Accelerator Extension** | A named extension profile for GPU, SIMD, distributed, or other domain-specific lowering.  Such profiles must state their additional types, decorators, memory spaces, and fallback behavior. |
 
@@ -265,7 +265,7 @@ The following constructs are in the POST Python subset:
 - Walrus operator (`:=`)
 - `match` / `case` (structural pattern matching over scalar and aggregate types)
 - `@dataclass`, `@staticmethod`, `@classmethod`
-- `@gufunc` (Section 8)
+- `@vectorize` and `@guvectorize` (Section 8)
 
 ### 5.2 Disqualified Constructs
 
@@ -419,25 +419,66 @@ When compiling a CPython extension module (`--ext-module`), POST Python code run
 
 ---
 
-## 8. Generalized Ufuncs
+## 8. Vectorized Functions and Generalized Ufuncs
 
 ### 8.1 Overview
 
-A **generalized ufunc** (gufunc) is a function that operates on sub-arrays of specified rank, broadcast by the runtime over outer (batch) dimensions.  POST Python adopts the NumPy gufunc signature convention and compiles gufuncs to the NumPy C ufunc protocol, making them usable from any Python code.
+POST Python adopts Numba's public decorator model for NumPy-compatible ufuncs:
+
+- `@vectorize` defines an element-wise scalar kernel.  The user function receives scalar values and returns one scalar value.  The compiler supplies the broadcast loop.
+- `@guvectorize` defines a generalized ufunc kernel.  The user function receives scalar values and/or core array views, and writes results through trailing output array parameters.
+
+The decorators may be imported from `postpython` or `postpython.ufunc`.  The legacy `postpython.gufunc.gufunc` decorator remains a compatibility alias for older POST Python sources, but new code should use `@vectorize` or `@guvectorize`.
+
+Scalar element-wise example:
 
 ```python
-from postyp import Array, Float64
-from postpython.gufunc import gufunc
+from postpython import vectorize
+from postyp import Float64
 
-@gufunc("(n),(n)->()")
-def dot(a: Array[Float64], b: Array[Float64]) -> Float64:
+@vectorize(["float64(float64, float64)"], target="cpu")
+def add(x: Float64, y: Float64) -> Float64:
+    return x + y
+```
+
+Generalized ufunc example:
+
+```python
+from postpython import guvectorize
+from postyp import Array, Float64
+
+@guvectorize([], "(n),(n)->()")
+def dot(a: Array[Float64], b: Array[Float64], out: Array[Float64]) -> None:
     result: Float64 = 0.0
     for i in range(len(a)):
         result += a[i] * b[i]
-    return result
+    out[0] = result
 ```
 
-### 8.2 Signature Syntax
+### 8.2 Decorator Forms
+
+`@vectorize` accepts the following forms:
+
+```python
+@vectorize
+@vectorize()
+@vectorize([type_signature, ...], target="cpu", nopython=True)
+```
+
+The concrete type signature list follows Numba's convention.  POST Python annotations remain normative; the signature list is used for compatibility, dispatch metadata, and future multi-specialization support.  A `@vectorize` function must have scalar parameters and a scalar return annotation.  Its implicit layout signature is `(),...->()`.
+
+`@guvectorize` accepts the following forms:
+
+```python
+@guvectorize(layout_signature)
+@guvectorize([type_signature, ...], layout_signature, target="cpu", nopython=True)
+```
+
+The `layout_signature` is the NumPy gufunc signature string defined below.  A `@guvectorize` function must return `None`; output values are trailing `Array[...]` parameters, including scalar outputs, which are represented as one-element output arrays and written with `out[0]`.
+
+The standard CPU target is `"cpu"`.  `"parallel"`, `"cuda"`, and other targets are accelerator-extension concerns unless a compiler explicitly claims those profiles.
+
+### 8.3 Layout Signature Syntax
 
 ```
 gufunc_sig  ::= input_sigs "->" output_sigs
@@ -461,15 +502,17 @@ Examples:
 | `"(m,k),(k,n)->(m,n)"`| matrix multiply                  |
 | `"(n,n)->()"`         | square-matrix scalar (e.g. det)  |
 
-### 8.3 Type Constraints
+### 8.4 Type Constraints
 
 - Input arrays' element dtype must match the `Array[DType]` annotation.
 - Core dimension sizes must agree across all array arguments at call time.
-- If a gufunc's signature includes scalar outputs (`"->()"`), the return annotation must be the corresponding scalar dtype, not `Array`.
+- `@vectorize` parameters and returns must be scalar dtype annotations.
+- `@guvectorize` outputs must be trailing `Array[...]` parameters.  Scalar layout outputs such as `"->()"` are still output array parameters; the kernel writes the value at index `0`.
+- `@guvectorize` kernels must return `None`.
 
-### 8.4 Lowering to NumPy Ufunc Protocol
+### 8.5 Lowering to NumPy Ufunc Protocol
 
-A conforming compiler lowers `@gufunc` functions to the NumPy generalized ufunc C API:
+A conforming compiler lowers `@vectorize` and `@guvectorize` functions to the NumPy ufunc/gufunc C API.  `@vectorize` is equivalent to a generalized ufunc whose inputs and single output all have scalar layout `()`:
 
 ```c
 void fn_gufunc(
@@ -488,9 +531,9 @@ Where:
 
 The compiler emits the outer broadcast loop and maps each array argument to the POST Array ABI view described in Section 9.2 before calling the user kernel.  This preserves shape, stride, and offset metadata inside the native kernel instead of passing only a raw data pointer.
 
-### 8.5 Interpreted Mode
+### 8.6 Interpreted Mode
 
-When a POST Python source file is run under the standard interpreter (not compiled), `@gufunc` wraps the function in a Python-level broadcast loop.  If NumPy is available, it uses `numpy.lib.stride_tricks` to implement the broadcast semantics.  The function remains callable and testable without compilation.
+When a POST Python source file is run under the standard interpreter (not compiled), `@vectorize` and `@guvectorize` wrap the function in a Python-level broadcast loop.  If NumPy is available, it uses NumPy arrays and broadcasting semantics.  The function remains callable and testable without compilation.
 
 ---
 
@@ -575,7 +618,7 @@ The reference compiler emits C99 as its intermediate output, then invokes the sy
 POST Python's standard library consists of:
 
 1. **`postyp`** — the type vocabulary (scalar dtypes, `Array`, `DataFrame`, `Series`, `Shape`).
-2. **`postpython.gufunc`** — the `@gufunc` decorator and signature utilities.
+2. **`postpython` / `postpython.ufunc`** — the `@vectorize` and `@guvectorize` decorators and signature utilities.  `postpython.gufunc` remains a compatibility module.
 3. **`postpython.math`** — scalar math functions (`sqrt`, `sin`, `cos`, `exp`, `log`, …), lowered to `libm`.
 4. **`postpython.mem`** — explicit memory utilities (`alloc`, `free`, `share`) for advanced use.
 
