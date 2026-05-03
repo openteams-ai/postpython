@@ -23,8 +23,8 @@ from ..ir import (
     Instruction, Terminator,
 )
 
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+# sys.path setup happens once in postpython/__init__.py.
+import postpython  # noqa: F401  -- ensure path setup runs
 from postyp import (
     DType,
     Bool, Int8, Int16, Int32, Int64,
@@ -132,9 +132,43 @@ def _emit_value(v: Value) -> str:
 def _emit_const_value(v: object) -> str:
     if isinstance(v, bool):
         return "true" if v else "false"
+    if isinstance(v, complex):
+        return f"({_emit_const_value(v.real)} + {_emit_const_value(v.imag)} * _Complex_I)"
     if isinstance(v, float):
         return repr(v)
     return str(v)
+
+
+def _emit_abs(instr: "UnaryOpInstr") -> str:
+    """Return the C statement for ``result = abs(operand)``.
+
+    The libm spelling depends on the operand dtype:
+      - signed int: abs / labs / llabs by width
+      - unsigned / bool: identity
+      - float: fabsf / fabs
+      - complex: cabsf / cabs (result type is the underlying float)
+    """
+    dtype = instr.operand.dtype
+    operand = _emit_value(instr.operand)
+    result = _emit_value(instr.result)
+    res_t = c_type(instr.result.dtype)
+    kind = dtype.kind
+    if kind == "f":
+        fn = "fabsf" if dtype is Float32 else "fabs"
+        return f"{res_t} {result} = {fn}({operand});"
+    if kind == "c":
+        fn = "cabsf" if dtype is Complex64 else "cabs"
+        return f"{res_t} {result} = {fn}({operand});"
+    if kind in ("u", "b"):
+        return f"{res_t} {result} = {operand};"
+    # Signed integer.
+    if dtype is Int64:
+        fn = "llabs"
+    elif dtype is Int32:
+        fn = "labs"
+    else:
+        fn = "abs"
+    return f"{res_t} {result} = {fn}({operand});"
 
 
 def _emit_binop(op: BinOp) -> str:
@@ -156,16 +190,43 @@ def emit_instruction(instr: Instruction, em: CEmitter, symbol_map: dict[str, str
         em.line(f"{c_type(instr.result.dtype)} {_emit_value(instr.result)} = {_emit_const_value(instr.value)};")
 
     elif isinstance(instr, BinOpInstr):
+        res_t = c_type(instr.result.dtype)
+        result = _emit_value(instr.result)
+        left = _emit_value(instr.left)
+        right = _emit_value(instr.right)
+        kind = instr.result.dtype.kind
         if instr.op == BinOp.POW:
-            em.line(f"{c_type(instr.result.dtype)} {_emit_value(instr.result)} = pow({_emit_value(instr.left)}, {_emit_value(instr.right)});")
-        elif instr.op == BinOp.MOD and instr.result.dtype.kind == "f":
-            em.line(f"{c_type(instr.result.dtype)} {_emit_value(instr.result)} = fmod({_emit_value(instr.left)}, {_emit_value(instr.right)});")
+            if kind == "i":
+                em.line(f"{res_t} {result} = ({res_t})__pp_ipow_i64({left}, {right});")
+            elif kind == "u":
+                em.line(f"{res_t} {result} = ({res_t})__pp_ipow_u64({left}, {right});")
+            elif kind == "c":
+                fn = "cpowf" if instr.result.dtype is Complex64 else "cpow"
+                em.line(f"{res_t} {result} = {fn}({left}, {right});")
+            else:
+                fn = "powf" if instr.result.dtype is Float32 else "pow"
+                em.line(f"{res_t} {result} = {fn}({left}, {right});")
+        elif instr.op == BinOp.MOD and kind == "f":
+            fn = "fmodf" if instr.result.dtype is Float32 else "fmod"
+            em.line(f"{res_t} {result} = {fn}({left}, {right});")
+        elif instr.op == BinOp.FDIV:
+            # Python floor-division semantics, dispatched per dtype.
+            if kind == "i":
+                em.line(f"{res_t} {result} = __pp_floordiv_si({left}, {right});")
+            elif kind in ("u", "b"):
+                em.line(f"{res_t} {result} = ({left}) / ({right});")
+            else:
+                fn = "floorf" if instr.result.dtype is Float32 else "floor"
+                em.line(f"{res_t} {result} = {fn}(({res_t})({left}) / ({res_t})({right}));")
         else:
-            em.line(f"{c_type(instr.result.dtype)} {_emit_value(instr.result)} = {_emit_value(instr.left)} {_emit_binop(instr.op)} {_emit_value(instr.right)};")
+            em.line(f"{res_t} {result} = {left} {_emit_binop(instr.op)} {right};")
 
     elif isinstance(instr, UnaryOpInstr):
-        prefix = {UnaryOp.NEG: "-", UnaryOp.NOT: "!", UnaryOp.ABS: "/* abs */"}[instr.op]
-        em.line(f"{c_type(instr.result.dtype)} {_emit_value(instr.result)} = {prefix}{_emit_value(instr.operand)};")
+        if instr.op == UnaryOp.ABS:
+            em.line(_emit_abs(instr))
+        else:
+            prefix = {UnaryOp.NEG: "-", UnaryOp.NOT: "!"}[instr.op]
+            em.line(f"{c_type(instr.result.dtype)} {_emit_value(instr.result)} = {prefix}{_emit_value(instr.operand)};")
 
     elif isinstance(instr, ArrayLoad):
         em.line(
@@ -433,6 +494,35 @@ _PREAMBLE = """\
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>
+#include <complex.h>
+
+/* Python-semantic floor division for signed integers: rounds toward -inf,
+   unlike C's `/` which truncates toward zero. */
+#define __pp_floordiv_si(a, b) \\
+    (((a) / (b)) - ((((a) % (b)) != 0) && (((a) < 0) != ((b) < 0)) ? 1 : 0))
+
+/* Integer power (exponentiation by squaring). Negative exponents return 0
+   to match Python's truncating int ** int < 0 not being representable. */
+static int64_t __pp_ipow_i64(int64_t base, int64_t exp) {
+    if (exp < 0) return 0;
+    int64_t result = 1;
+    while (exp > 0) {
+        if (exp & 1) result *= base;
+        exp >>= 1;
+        if (exp) base *= base;
+    }
+    return result;
+}
+
+static uint64_t __pp_ipow_u64(uint64_t base, uint64_t exp) {
+    uint64_t result = 1;
+    while (exp > 0) {
+        if (exp & 1) result *= base;
+        exp >>= 1;
+        if (exp) base *= base;
+    }
+    return result;
+}
 
 /* NumPy ufunc protocol.
    When built with -DNUMPY_UFUNC the real NumPy headers supply npy_intp and
