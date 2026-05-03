@@ -11,8 +11,8 @@ import ast
 from dataclasses import dataclass, field
 from typing import Optional
 
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+# sys.path setup happens once in postpython/__init__.py.
+import postpython  # noqa: F401  -- ensure path setup runs
 from postyp import (
     DType, Bool,
     Int8, Int16, Int32, Int64,

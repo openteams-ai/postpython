@@ -34,12 +34,15 @@ from .typechecker import (
     promote,
 )
 
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+# sys.path setup happens once in postpython/__init__.py.
+import postpython  # noqa: F401  -- ensure path setup runs
 from postyp import (
     DType,
     Int64,
+    Float32,
     Float64,
+    Complex64,
+    Complex128,
     Bool,
     AnyShape,
     Shape,
@@ -743,14 +746,10 @@ class FunctionLifter:
             return self._lower_call(node)
 
         if isinstance(node, ast.Compare):
-            left = self._lower_expr(node.left)
-            result = b.make_value("cmp", Bool)
-            if left and node.comparators:
-                right = self._lower_expr(node.comparators[0])
-                if right:
-                    op_type = type(node.ops[0])
-                    b.emit(BinOpInstr(result, _AST_BINOP.get(op_type, BinOp.EQ), left, right))
-            return result
+            return self._lower_compare(node)
+
+        if isinstance(node, ast.BoolOp):
+            return self._lower_boolop(node)
 
         if isinstance(node, ast.IfExp):
             cond = self._lower_expr(node.test)
@@ -774,17 +773,74 @@ class FunctionLifter:
         v = node.value
         if isinstance(v, bool):
             val = b.make_value("b", Bool)
-            b.emit(Const(val, int(v)))
+            b.emit(Const(val, bool(v)))
         elif isinstance(v, int):
             val = b.make_value("i", Int64)
             b.emit(Const(val, v))
         elif isinstance(v, float):
             val = b.make_value("f", Float64)
             b.emit(Const(val, v))
+        elif isinstance(v, complex):
+            val = b.make_value("z", Complex128)
+            b.emit(Const(val, v))
         else:
             val = b.make_value("c", Int64)
             b.emit(Const(val, 0))
         return val
+
+    def _lower_compare(self, node: ast.Compare) -> Optional[Value]:
+        """Lower comparisons, including chains like ``a < b < c``.
+
+        A chain ``a op0 b op1 c`` is lowered to ``(a op0 b) and (b op1 c)``,
+        evaluating each comparand exactly once. POST Python expressions are
+        side-effect free at the boundaries we lower, so non-short-circuit
+        evaluation is observably equivalent.
+        """
+        b = self._builder
+        left = self._lower_expr(node.left)
+        if left is None or not node.comparators:
+            return None
+
+        comparisons: list[Value] = []
+        prev = left
+        for op_node, comparator in zip(node.ops, node.comparators):
+            right = self._lower_expr(comparator)
+            if right is None:
+                return None
+            op_type = type(op_node)
+            cmp_op = _AST_BINOP.get(op_type)
+            if cmp_op is None:
+                return None
+            cmp_val = b.make_value("cmp", Bool)
+            b.emit(BinOpInstr(cmp_val, cmp_op, prev, right))
+            comparisons.append(cmp_val)
+            prev = right
+
+        result = comparisons[0]
+        for next_cmp in comparisons[1:]:
+            combined = b.make_value("and", Bool)
+            b.emit(BinOpInstr(combined, BinOp.AND, result, next_cmp))
+            result = combined
+        return result
+
+    def _lower_boolop(self, node: ast.BoolOp) -> Optional[Value]:
+        """Lower ``and`` / ``or`` to chained binary ops on Bool values."""
+        b = self._builder
+        op = BinOp.AND if isinstance(node.op, ast.And) else BinOp.OR
+        operands: list[Value] = []
+        for value in node.values:
+            v = self._lower_expr(value)
+            if v is None:
+                return None
+            operands.append(v)
+        if not operands:
+            return None
+        result = operands[0]
+        for nxt in operands[1:]:
+            new = b.make_value("bool", Bool)
+            b.emit(BinOpInstr(new, op, result, nxt))
+            result = new
+        return result
 
     def _lower_call(self, node: ast.Call) -> Optional[Value]:
         b = self._builder
@@ -798,6 +854,20 @@ class FunctionLifter:
                 result = b.make_value("len", Int64)
                 if arr:
                     b.emit(Call(result, "__pp_len__", [arr]))
+                return result
+            if name == "abs" and len(node.args) == 1:
+                operand = self._lower_expr(node.args[0])
+                if operand is None:
+                    return None
+                # abs of complex collapses to the underlying float type.
+                if operand.dtype is Complex128:
+                    result_dtype: type[DType] = Float64
+                elif operand.dtype is Complex64:
+                    result_dtype = Float32
+                else:
+                    result_dtype = operand.dtype
+                result = b.make_value("abs", result_dtype)
+                b.emit(UnaryOpInstr(result, UnaryOp.ABS, operand))
                 return result
             if name == "range":
                 return None  # handled by for-loop lowering

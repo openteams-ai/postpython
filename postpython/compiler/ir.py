@@ -21,10 +21,8 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Optional, Union
 
-# DType is resolved at import time so we get the real classes.
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+# sys.path setup happens once in postpython/__init__.py.
+import postpython  # noqa: F401  -- ensure path setup runs
 from postyp import DType, AnyShape, Shape, ArrayLayout, COrder
 
 
@@ -83,7 +81,7 @@ class UnaryOp(Enum):
 class Const:
     """result = literal_value"""
     result: Value
-    value: Union[int, float, bool, str, bytes]
+    value: Union[int, float, bool, complex, str, bytes]
 
 
 @dataclass

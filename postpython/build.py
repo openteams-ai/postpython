@@ -14,6 +14,7 @@ ctypes.CDLL or register ufunc loops with NumPy.
 from __future__ import annotations
 
 import hashlib
+import os
 import platform
 import subprocess
 import sys
@@ -87,12 +88,16 @@ def build_source(
     # Write C to a temp file (or a permanent location if keep_c is set).
     src_hash = hashlib.md5(source.encode()).hexdigest()[:8]
     stem = Path(filename).stem if filename != "<source>" else "module"
-    c_path = Path(tempfile.mktemp(prefix=f"{stem}-{src_hash}-", suffix=".c"))
-    c_path.write_text(c_source, encoding="utf-8")
+    c_fd, c_path_str = tempfile.mkstemp(prefix=f"{stem}-{src_hash}-", suffix=".c")
+    c_path = Path(c_path_str)
+    with os.fdopen(c_fd, "w", encoding="utf-8") as c_file:
+        c_file.write(c_source)
 
     # ── 4. C99 → shared library ─────────────────────────────────────────────
     if output is None:
-        output = Path(tempfile.mktemp(prefix=f"{stem}-", suffix=_SO_SUFFIX))
+        out_fd, out_str = tempfile.mkstemp(prefix=f"{stem}-", suffix=_SO_SUFFIX)
+        os.close(out_fd)
+        output = Path(out_str)
 
     extra_flags: list[str] = list(cflags or [])
     if numpy_ufunc:
