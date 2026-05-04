@@ -1,0 +1,92 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+# ─── Project metadata ────────────────────────────────────────────────────────
+
+[project]
+name = "postpython"
+version = "0.2.0"
+description = "Reference implementation for POST Python — Performance Optimized Statically Typed Python."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Travis E. Oliphant" }]
+keywords = ["compiler", "python", "aot", "ufunc", "numpy", "array-api"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Compilers",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = []
+
+[project.optional-dependencies]
+numpy = ["numpy"]
+narwhals = ["narwhals"]
+dev = ["pytest>=7", "numpy", "narwhals"]
+
+[project.scripts]
+postpython-check = "postpython.checker:_main"
+
+[project.urls]
+Repository = "https://github.com/openteams-ai/postpython"
+Specification = "https://github.com/openteams-ai/postpython/blob/main/docs/spec.md"
+
+# ─── Build configuration ─────────────────────────────────────────────────────
+# The repository ships two regular packages plus the single-file `postyp`
+# module at the top level. Hatchling needs both told explicitly.
+
+[tool.hatch.build.targets.wheel]
+packages = ["postpython", "ppspecial"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"postyp.py" = "postyp.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "postpython",
+    "ppspecial",
+    "postyp.py",
+    "docs",
+    "examples",
+    "tests",
+    "README.md",
+    "pyproject.toml",
+]
+
+# ─── Pixi ────────────────────────────────────────────────────────────────────
+# Run `pixi install` for a default environment, or `pixi install -e dev` for a
+# dev environment with pytest and numerical dependencies. Tasks below are
+# invoked with `pixi run <task>`.
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "osx-64", "linux-64", "linux-aarch64", "win-64"]
+
+[tool.pixi.pypi-dependencies]
+postpython = { path = ".", editable = true }
+
+[tool.pixi.dependencies]
+python = ">=3.10"
+# A C compiler is required to build POST Python sources to native code.
+c-compiler = "*"
+
+[tool.pixi.feature.dev.dependencies]
+pytest = ">=7"
+numpy = "*"
+narwhals = "*"
+
+[tool.pixi.environments]
+default = { solve-group = "default" }
+dev = { features = ["dev"], solve-group = "default" }
+
+[tool.pixi.tasks]
+test = { cmd = "pytest tests/", description = "Run the test suite." }
+check = { cmd = "postpython-check", description = "Run the POST Python structural checker." }
+build-example = { cmd = "python examples/build_shared_lib.py", description = "Build the example shared library." }
