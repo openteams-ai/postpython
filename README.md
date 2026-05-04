@@ -78,24 +78,72 @@ examples/                 Example POST Python source files
 tests/                    Reference test suite
 ```
 
+## Installation
+
+PostPython ships as a regular Python package and can be installed with either
+`pip` or [pixi](https://pixi.sh/). Both paths install three importable units:
+the `postpython` package, the `postyp` type module, and the `ppspecial`
+example library.
+
+A working C compiler (`cc`, `clang`, or `gcc`) is required to compile POST
+Python sources to native code. The pixi environment installs one for you;
+under pip you need a system compiler.
+
+### With pip
+
+Install the latest release from a local checkout (a future release will be
+published to PyPI):
+
+```bash
+python -m pip install .
+```
+
+For development — including `pytest`, `numpy`, and `narwhals` — install the
+`dev` extra in editable mode:
+
+```bash
+python -m pip install -e ".[dev]"
+```
+
+Run the test suite:
+
+```bash
+pytest
+```
+
+### With pixi
+
+`pyproject.toml` contains a `[tool.pixi]` workspace. Pixi resolves
+conda-forge dependencies (Python, NumPy, narwhals, a C compiler) and installs
+PostPython itself as an editable PyPI package, so any source changes are
+picked up immediately.
+
+```bash
+pixi install            # default environment
+pixi install -e dev     # development environment with pytest etc.
+```
+
+Run a defined task:
+
+```bash
+pixi run -e dev test                # pytest tests/
+pixi run -e dev check FILE.py       # postpython-check on a source file
+pixi run -e dev build-example       # python examples/build_shared_lib.py
+```
+
+Or drop into a shell with the environment activated:
+
+```bash
+pixi shell -e dev
+```
+
 ## Quick Start
 
-Create an environment with the development dependencies:
+After installing (or with `pixi shell -e dev` active), build one of the
+examples to a native shared library:
 
 ```bash
-python -m pip install -r requirements-dev.txt
-```
-
-Run the test suite from the repository root:
-
-```bash
-PYTHONPATH=. pytest
-```
-
-Build one of the examples to a native shared library:
-
-```bash
-PYTHONPATH=. python examples/build_shared_lib.py
+python examples/build_shared_lib.py
 ```
 
 Or call the build helper directly:
@@ -106,9 +154,6 @@ from postpython.build import build_file
 lib_path = build_file("examples/gaussian.py")
 print(lib_path)
 ```
-
-A working C compiler such as `cc`, `clang`, or `gcc` is required for native
-builds.
 
 ## Design Highlights
 

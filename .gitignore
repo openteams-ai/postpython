@@ -9,3 +9,5 @@ build/
 *.egg-info/
 .pytest_cache/
 .claude/
+# Pixi: the env dir is local; pixi.lock is committed for reproducibility.
+.pixi/
