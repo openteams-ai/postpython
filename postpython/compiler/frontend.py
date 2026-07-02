@@ -151,12 +151,19 @@ def parse_ufunc_sig(sig: str) -> UFuncSignature:
 # ---------------------------------------------------------------------------
 
 class Builder:
-    """Stateful IR builder for a single function."""
+    """Stateful IR builder for a single function.
 
-    def __init__(self, fn: Function) -> None:
+    *reserved* holds every user-visible name in the function (parameters
+    and assignment targets) so generated temporaries never collide with
+    them — a user local named ``c1`` must not clash with the ``c``-prefix
+    constant temp ``c1``.
+    """
+
+    def __init__(self, fn: Function, reserved: set[str] | None = None) -> None:
         self._fn = fn
         self._block: Optional[BasicBlock] = None
         self._counter = 0
+        self._reserved = reserved or set()
 
     @property
     def current_block(self) -> BasicBlock:
@@ -167,8 +174,11 @@ class Builder:
         self._block = block
 
     def fresh(self, prefix: str = "t") -> str:
-        self._counter += 1
-        return f"{prefix}{self._counter}"
+        while True:
+            self._counter += 1
+            name = f"{prefix}{self._counter}"
+            if name not in self._reserved:
+                return name
 
     def make_value(self, prefix: str, dtype: type[DType]) -> Value:
         return Value(self.fresh(prefix), dtype)
@@ -411,8 +421,15 @@ class FunctionLifter:
         self._type_map, tc_errors = infer_function(node, param_types, return_dtype)
         self._errors.extend(tc_errors)
 
-        # Build IR.
-        builder = Builder(fn)
+        # Build IR. Reserve every user-visible name so generated temps
+        # can't collide with locals (e.g. a user variable named `c1`).
+        user_names = {p.name for p in params}
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Store):
+                user_names.add(sub.id)
+            elif isinstance(sub, ast.arg):
+                user_names.add(sub.arg)
+        builder = Builder(fn, reserved=user_names)
         entry = fn.new_block("entry")
         builder.set_block(entry)
 
