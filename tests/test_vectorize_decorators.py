@@ -84,7 +84,7 @@ def add(x: Float64, y: Float64) -> Float64:
 
     assert isinstance(fn, UFuncIR)
     assert str(fn.ufunc_sig) == "(),()->()"
-    assert "static void add_ufunc_loop(" in c_source
+    assert "void add_ufunc_loop(" in c_source
 
 
 def test_compiler_lowers_guvectorize_numba_form():

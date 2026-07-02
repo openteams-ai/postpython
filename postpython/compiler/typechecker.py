@@ -294,41 +294,68 @@ _FLOAT_RANK = [Float16, Float32, Float64]
 _COMPLEX_RANK = [Complex64, Complex128]
 
 
+def _rank_in(t: type[DType], lst: list) -> int:
+    try:
+        return lst.index(t)
+    except ValueError:
+        return -1
+
+
 def promote(a: type[DType], b: type[DType]) -> type[DType]:
-    """Return the result dtype when mixing a and b in arithmetic."""
+    """Return the result dtype when mixing a and b in arithmetic.
+
+    Follows array-api promotion: Bool promotes to the other operand,
+    complex pairs with the float precision of the other operand
+    (Float64 forces Complex128), floats win over integers at their own
+    precision, and mixed signed/unsigned integers widen to the signed
+    type with one extra bit, saturating at Int64.
+
+    The result is symmetric: promote(a, b) is promote(b, a).
+    """
     if a is b:
         return a
 
-    def _rank_in(t: type[DType], lst: list) -> int:
-        try:
-            return lst.index(t)
-        except ValueError:
-            return -1
+    # Bool promotes to the other operand's dtype.
+    if a is Bool:
+        return b
+    if b is Bool:
+        return a
 
-    # Complex wins over everything
-    for t in (a, b):
-        if t in _COMPLEX_RANK:
-            ca, cb = _rank_in(a, _COMPLEX_RANK), _rank_in(b, _COMPLEX_RANK)
-            return _COMPLEX_RANK[max(ca, cb, 0)]
+    ca, cb = _rank_in(a, _COMPLEX_RANK), _rank_in(b, _COMPLEX_RANK)
+    fa, fb = _rank_in(a, _FLOAT_RANK), _rank_in(b, _FLOAT_RANK)
 
-    # Float wins over int/uint
-    for t in (a, b):
-        if t in _FLOAT_RANK:
-            fa, fb = _rank_in(a, _FLOAT_RANK), _rank_in(b, _FLOAT_RANK)
-            return _FLOAT_RANK[max(fa, fb, 0)]
+    # Complex wins; each operand contributes its precision requirement.
+    if ca >= 0 or cb >= 0:
+        def complex_rank(c_rank: int, f_rank: int) -> int:
+            if c_rank >= 0:
+                return c_rank
+            if f_rank >= 0:
+                # Float16/Float32 pair with Complex64; Float64 with Complex128.
+                return 1 if _FLOAT_RANK[f_rank] is Float64 else 0
+            return 0  # integers adopt the complex operand's precision
+        return _COMPLEX_RANK[max(complex_rank(ca, fa), complex_rank(cb, fb))]
 
-    # Mixed signed/unsigned: promote to signed with one extra bit
+    # Float wins over int/uint at its own precision.
+    if fa >= 0 or fb >= 0:
+        return _FLOAT_RANK[max(fa, fb)]
+
     ra, rb = _rank_in(a, _INT_RANK), _rank_in(b, _INT_RANK)
     ua, ub = _rank_in(a, _UINT_RANK), _rank_in(b, _UINT_RANK)
     if ra >= 0 and rb >= 0:
         return _INT_RANK[max(ra, rb)]
     if ua >= 0 and ub >= 0:
         return _UINT_RANK[max(ua, ub)]
-    # mixed signed + unsigned — widen signed
-    signed_rank = max(ra, 0)
-    uint_rank = max(ua, ub, 0)
-    result_rank = min(max(signed_rank, uint_rank + 1), len(_INT_RANK) - 1)
-    return _INT_RANK[result_rank]
+    if (ra >= 0 or ua >= 0) and (rb >= 0 or ub >= 0):
+        # Mixed signed/unsigned: widen to the signed type with one extra
+        # bit over the unsigned operand, saturating at Int64.
+        signed_rank = max(ra, rb)
+        uint_rank = max(ua, ub)
+        result_rank = min(max(signed_rank, uint_rank + 1), len(_INT_RANK) - 1)
+        return _INT_RANK[result_rank]
+
+    # Non-numeric mix (Str / Bytes): no promotion defined; keep the left
+    # operand's type and let later checks reject the operation.
+    return a
 
 
 # ---------------------------------------------------------------------------
@@ -427,6 +454,12 @@ class TypeInferencer(ast.NodeVisitor):
             if t and f:
                 result = promote(t, f)
                 return self._set(node, result)
+        if isinstance(node, ast.NamedExpr):
+            t = self.infer_expr(node.value)
+            if t is not None and isinstance(node.target, ast.Name):
+                self.env.bind(node.target.id, t)
+                self._set(node, t)
+            return t
         return None
 
     def _infer_constant(self, node: ast.Constant) -> type[DType]:
@@ -451,6 +484,9 @@ class TypeInferencer(ast.NodeVisitor):
         if lt is None or rt is None:
             return None
         result = promote(lt, rt)
+        # Python true division always yields a float; int / int → Float64.
+        if isinstance(node.op, ast.Div) and result.kind in ("i", "u", "b"):
+            result = Float64
         return self._set(node, result)
 
     def _infer_unary(self, node: ast.UnaryOp) -> Optional[type[DType]]:
