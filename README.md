@@ -24,9 +24,12 @@ This repository contains:
   dataframes, and series.
 - Numba-shaped `@vectorize` and `@guvectorize` decorators for NumPy-compatible
   ufunc-style kernels.
-- A small `ppspecial` library written in typed POST Python.
 - Tests for checker behavior, compiler lowering, array layout/ABI behavior,
-  vectorized decorators, and numerical special functions.
+  and vectorized decorators.
+
+A companion library, [ppspecial](https://github.com/openteams-ai/ppspecial),
+reimplements `scipy.special` in pure POST Python and serves as the standard's
+flagship real-world consumer.
 
 PostPython is not production-ready. It is a reference implementation and design
 vehicle for the standard.
@@ -73,7 +76,6 @@ postpython/compiler/      AST frontend, IR, and C backend
 postpython/ufunc.py       @vectorize and @guvectorize runtime wrappers
 postpython/build.py       POST Python to C99 to shared-library build helper
 postpython/math.py        Typed scalar math wrappers
-ppspecial/                Example special-function library
 examples/                 Example POST Python source files
 tests/                    Reference test suite
 ```
@@ -81,9 +83,8 @@ tests/                    Reference test suite
 ## Installation
 
 PostPython ships as a regular Python package and can be installed with either
-`pip` or [pixi](https://pixi.sh/). Both paths install three importable units:
-the `postpython` package, the `postyp` type module, and the `ppspecial`
-example library.
+`pip` or [pixi](https://pixi.sh/). Both paths install two importable units:
+the `postpython` package and the `postyp` type module.
 
 A working C compiler (`cc`, `clang`, or `gcc`) is required to compile POST
 Python sources to native code. The pixi environment installs one for you;

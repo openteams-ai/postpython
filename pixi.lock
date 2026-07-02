@@ -2769,7 +2769,7 @@ packages:
 - pypi: ./
   name: postpython
   version: 0.2.0
-  sha256: ec8530634ba39ac4720505833dd6cc4d0e2bb8a357a09d426e15054cbcf55eca
+  sha256: 8280e3037d36b425590be6a65a109941be5feebf28cb61ceff078dad314ad77b
   requires_dist:
   - numpy ; extra == 'numpy'
   - narwhals ; extra == 'narwhals'
