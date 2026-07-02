@@ -311,6 +311,27 @@ def test_aug_assign_bitwise_reports_pp900():
     )
 
 
+def test_user_locals_do_not_collide_with_generated_temps():
+    # Generated temporaries use prefix+counter names (c1, v2, i3, ...);
+    # user locals with the same shape must not collide with them.
+    c = _emit(
+        "from postyp import Float64\n"
+        "def f(x: Float64) -> Float64:\n"
+        "    c1: Float64 = 2.0\n"
+        "    v1: Float64 = 3.0\n"
+        "    i1: Float64 = 5.0\n"
+        "    tmp1: Float64 = 7.0\n"
+        "    return c1 * v1 + i1 * tmp1 + x\n"
+    )
+    for name in ("_c1", "_v1", "_i1", "_tmp1"):
+        declarations = [
+            line for line in c.splitlines()
+            if line.strip().startswith(f"double {name} =")
+            or line.strip().startswith(f"int64_t {name} =")
+        ]
+        assert len(declarations) == 1, (name, declarations)
+
+
 def test_unary_plus_is_identity_not_negation():
     module, errors = compile_source(
         "from postyp import Int64\n"
