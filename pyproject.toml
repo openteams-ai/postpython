@@ -43,7 +43,7 @@ Specification = "https://github.com/openteams-ai/postpython/blob/main/docs/spec.
 # module at the top level. Hatchling needs both told explicitly.
 
 [tool.hatch.build.targets.wheel]
-packages = ["postpython", "ppspecial"]
+packages = ["postpython"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "postyp.py" = "postyp.py"
@@ -51,7 +51,6 @@ packages = ["postpython", "ppspecial"]
 [tool.hatch.build.targets.sdist]
 include = [
     "postpython",
-    "ppspecial",
     "postyp.py",
     "docs",
     "examples",
