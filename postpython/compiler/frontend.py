@@ -523,6 +523,10 @@ class FunctionLifter:
                 )
             elif isinstance(stmt.target, ast.Subscript):
                 self._lower_store(stmt.target, val)
+            else:
+                self._unsupported_feature_error(
+                    stmt.target, "assignment targets of this form"
+                )
         else:
             val = self._lower_expr(stmt.value)
             if val:
@@ -531,6 +535,11 @@ class FunctionLifter:
                         self._assign_name(target.id, val)
                     elif isinstance(target, ast.Subscript):
                         self._lower_store(target, val)
+                    else:
+                        self._unsupported_feature_error(
+                            target,
+                            "assignment targets of this form (tuple unpacking, attributes)",
+                        )
 
     def _assign_name(
         self,
@@ -553,33 +562,42 @@ class FunctionLifter:
         return target
 
     def _lower_aug_assign(self, stmt: ast.AugAssign) -> None:
+        op_type = type(stmt.op)
+        if op_type not in _AST_BINOP:
+            self._unsupported_feature_error(
+                stmt, f"augmented assignment with the `{type(stmt.op).__name__}` operator"
+            )
+            return
+        bin_op = _AST_BINOP[op_type]
+
         if isinstance(stmt.target, ast.Subscript):
             left = self._lower_expr(stmt.target)
             right = self._lower_expr(stmt.value)
             if left is None or right is None:
                 return
-            op_type = type(stmt.op)
-            if op_type not in _AST_BINOP:
-                return
-            result_dtype = promote(left.dtype, right.dtype)
+            result_dtype = self._binop_result_dtype(bin_op, left, right)
             result = self._builder.make_value("aug", result_dtype)
-            self._builder.emit(BinOpInstr(result, _AST_BINOP[op_type], left, right))
+            self._builder.emit(BinOpInstr(result, bin_op, left, right))
             self._lower_store(stmt.target, result)
             return
 
         if not isinstance(stmt.target, ast.Name):
+            self._unsupported_feature_error(stmt, "augmented assignment to this target form")
             return
         name = stmt.target.id
         left = self._locals.get(name)
+        if left is None:
+            self._compiler_error(
+                stmt, "PP900",
+                f"augmented assignment to unknown name `{name}`",
+            )
+            return
         right = self._lower_expr(stmt.value)
-        if left is None or right is None:
+        if right is None:
             return
-        op_type = type(stmt.op)
-        if op_type not in _AST_BINOP:
-            return
-        result_dtype = promote(left.dtype, right.dtype)
+        result_dtype = self._binop_result_dtype(bin_op, left, right)
         result = self._builder.make_value("aug", result_dtype)
-        self._builder.emit(BinOpInstr(result, _AST_BINOP[op_type], left, right))
+        self._builder.emit(BinOpInstr(result, bin_op, left, right))
         self._builder.emit(AssignValue(left, result))
         self._locals[name] = left
 
@@ -618,10 +636,22 @@ class FunctionLifter:
             stop_v  = self._lower_expr(range_args[1]) or Value("_stop", Int64)
             step_v  = self._lower_expr(range_args[2]) or Value("_step", Int64)
 
-        idx = Value(loop_var, Int64)
-        if len(range_args) == 1:
-            b.emit(Const(idx, 0))
+        # Reuse the existing binding when the loop variable was already
+        # declared (a prior loop or assignment); redeclaring it would emit
+        # a duplicate C declaration in the shared function scope.
+        existing = self._locals.get(loop_var)
+        if existing is not None:
+            idx = existing
+            # Python evaluates range() before rebinding the loop variable,
+            # so snapshot bounds that alias the variable itself
+            # (e.g. `for n in range(n)`).
+            if stop_v is idx:
+                stop_v = self._copy_to_temp(stop_v)
+            if step_v is idx:
+                step_v = self._copy_to_temp(step_v)
+            b.emit(AssignValue(idx, start_v))
         else:
+            idx = Value(loop_var, Int64)
             b.emit(AssignValue(idx, start_v, declare=True))
         self._locals[loop_var] = idx
 
@@ -707,6 +737,17 @@ class FunctionLifter:
 
     # ---- expression lowering ----------------------------------------------
 
+    def _binop_result_dtype(self, op: BinOp, left: Value, right: Value) -> type[DType]:
+        """Result dtype for a binary operation on two lowered values.
+
+        Python true division always yields a float, so integer / integer
+        promotes to Float64 rather than staying integral.
+        """
+        result = promote(left.dtype, right.dtype)
+        if op == BinOp.DIV and result.kind in ("i", "u", "b"):
+            return Float64
+        return result
+
     def _lower_expr(self, node: ast.expr) -> Optional[Value]:
         b = self._builder
 
@@ -714,19 +755,39 @@ class FunctionLifter:
             return self._lower_const(node)
 
         if isinstance(node, ast.Name):
-            return self._locals.get(node.id)
+            value = self._locals.get(node.id)
+            if value is None:
+                self._compiler_error(
+                    node,
+                    "PP900",
+                    f"name `{node.id}` is not a local value; module-level "
+                    "constants and imported names are not lowered by this "
+                    "compiler yet",
+                )
+            return value
+
+        if isinstance(node, ast.NamedExpr):
+            # Walrus operator: assign and yield the value (spec §5.1).
+            value = self._lower_expr(node.value)
+            if value is None or not isinstance(node.target, ast.Name):
+                return None
+            return self._assign_name(node.target.id, value)
 
         if isinstance(node, ast.BinOp):
             left  = self._lower_expr(node.left)
             right = self._lower_expr(node.right)
             if left is None or right is None:
                 return None
-            result_dtype = promote(left.dtype, right.dtype)
             op_type = type(node.op)
             if op_type not in _AST_BINOP:
+                self._unsupported_feature_error(
+                    node, f"the `{type(node.op).__name__}` operator"
+                )
                 return None
+            bin_op = _AST_BINOP[op_type]
+            result_dtype = self._binop_result_dtype(bin_op, left, right)
             result = b.make_value("v", result_dtype)
-            b.emit(BinOpInstr(result, _AST_BINOP[op_type], left, right))
+            b.emit(BinOpInstr(result, bin_op, left, right))
             return result
 
         if isinstance(node, ast.UnaryOp):
@@ -734,9 +795,17 @@ class FunctionLifter:
             if operand is None:
                 return None
             op_type = type(node.op)
+            if op_type is ast.UAdd:
+                return operand  # unary plus is the identity
+            un_op = _AST_UNOP.get(op_type)
+            if un_op is None:
+                self._unsupported_feature_error(
+                    node, f"the `{type(node.op).__name__}` unary operator"
+                )
+                return None
             result_dtype = Bool if op_type is ast.Not else operand.dtype
             result = b.make_value("v", result_dtype)
-            b.emit(UnaryOpInstr(result, _AST_UNOP.get(op_type, UnaryOp.NEG), operand))
+            b.emit(UnaryOpInstr(result, un_op, operand))
             return result
 
         if isinstance(node, ast.Subscript):
@@ -766,6 +835,11 @@ class FunctionLifter:
             self._unsupported_feature_error(node, "comprehensions")
             return None
 
+        # Diagnose instead of silently dropping: any expression form
+        # without a lowering above must not vanish from the output.
+        self._unsupported_feature_error(
+            node, f"`{type(node).__name__}` expressions"
+        )
         return None
 
     def _lower_const(self, node: ast.Constant) -> Value:
@@ -810,6 +884,9 @@ class FunctionLifter:
             op_type = type(op_node)
             cmp_op = _AST_BINOP.get(op_type)
             if cmp_op is None:
+                self._unsupported_feature_error(
+                    node, f"`{type(op_node).__name__}` comparisons"
+                )
                 return None
             cmp_val = b.make_value("cmp", Bool)
             b.emit(BinOpInstr(cmp_val, cmp_op, prev, right))
@@ -870,7 +947,14 @@ class FunctionLifter:
                 b.emit(UnaryOpInstr(result, UnaryOp.ABS, operand))
                 return result
             if name == "range":
-                return None  # handled by for-loop lowering
+                # For-loop lowering consumes range() directly; reaching here
+                # means range was used as a value, which has no lowering.
+                self._compiler_error(
+                    node,
+                    "PP900",
+                    "`range()` is only supported as a `for` loop iterable",
+                )
+                return None
             cast_dtype = resolve_annotation(ast.Name(id=name, ctx=ast.Load()))
             if cast_dtype is not None and node.args:
                 operand = self._lower_expr(node.args[0])
@@ -879,6 +963,14 @@ class FunctionLifter:
                 result = b.make_value("cast", cast_dtype)
                 b.emit(Cast(result, operand))
                 return result
+        elif isinstance(node.func, ast.Attribute):
+            self._compiler_error(
+                node,
+                "PP900",
+                f"attribute calls (`{ast.unparse(node.func)}(...)`) are not "
+                "lowered by this compiler yet; import the function by name",
+            )
+            return None
         args = [v for a in node.args if (v := self._lower_expr(a)) is not None]
         func_name = (
             node.func.id if isinstance(node.func, ast.Name)
@@ -966,6 +1058,11 @@ class FunctionLifter:
         indices.reverse()
         return current.id, indices
 
+    def _copy_to_temp(self, v: Value) -> Value:
+        temp = self._builder.make_value("tmp", v.dtype)
+        self._builder.emit(AssignValue(temp, v, declare=True))
+        return temp
+
     def _const_int_value(self, value: int, prefix: str = "dim") -> Value:
         result = self._builder.make_value(prefix, Int64)
         self._builder.emit(Const(result, value))
@@ -1039,6 +1136,17 @@ class FunctionLifter:
                     result.append(self._const_int_value(stride, "stride"))
             return result
 
+        if self._ufunc_sig is not None and arr.is_array:
+            # Ufunc kernels receive views built by the wrapper from NumPy's
+            # steps array, so strides must be read at runtime: NumPy does
+            # not guarantee compact core slices (e.g. transposed inputs).
+            runtime_strides: list[Value] = []
+            for axis in range(ndim):
+                stride_value = self._builder.make_value("stride", Int64)
+                self._builder.emit(ArrayStride(stride_value, arr, axis))
+                runtime_strides.append(stride_value)
+            return runtime_strides
+
         dim_values = [self._dim_value_for_axis(name, arr, axis) for axis in range(ndim)]
         dims = [dim for dim in dim_values if dim is not None]
 
@@ -1071,6 +1179,11 @@ class FunctionLifter:
     def _flatten_array_index(self, name: str, index_nodes: list[ast.expr]) -> tuple[Value, Value] | None:
         arr = self._locals.get(name)
         if arr is None:
+            self._compiler_error(
+                index_nodes[0] if index_nodes else self._node,
+                "PP900",
+                f"subscripted name `{name}` is not a lowered local array",
+            )
             return None
         lowered = [self._lower_expr(index) for index in index_nodes]
         if any(index is None for index in lowered):
@@ -1103,6 +1216,9 @@ class FunctionLifter:
     def _lower_subscript_load(self, node: ast.Subscript) -> Optional[Value]:
         root = self._subscript_root_and_indices(node)
         if root is None:
+            self._unsupported_feature_error(
+                node, "subscripts of non-name expressions"
+            )
             return None
         name, index_nodes = root
         flattened = self._flatten_array_index(name, index_nodes)
@@ -1116,6 +1232,9 @@ class FunctionLifter:
     def _lower_store(self, target: ast.Subscript, val: Value) -> None:
         root = self._subscript_root_and_indices(target)
         if root is None:
+            self._unsupported_feature_error(
+                target, "subscript stores to non-name expressions"
+            )
             return
         name, index_nodes = root
         flattened = self._flatten_array_index(name, index_nodes)

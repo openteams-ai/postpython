@@ -31,7 +31,6 @@ from postyp import (
     UInt8, UInt16, UInt32, UInt64,
     Float16, Float32, Float64, Complex64, Complex128,
     Str, Bytes,
-    COrder, FOrder, Strides,
 )
 
 
@@ -76,16 +75,21 @@ def c_value_type(v: Value | Param) -> str:
 
 
 _RESERVED_C_SYMBOLS: frozenset[str] = frozenset({
+    # <math.h>
     "acos", "asin", "atan", "atan2",
-    "ceil", "cos", "cosh",
+    "cbrt", "ceil", "copysign", "cos", "cosh",
     "erf", "erfc", "exp", "exp2", "expm1",
-    "fabs", "floor", "fma", "fmod", "frexp",
+    "fabs", "floor", "fma", "fmax", "fmin", "fmod", "frexp",
     "gamma", "hypot", "j0", "j1",
     "ldexp", "lgamma", "log", "log10", "log1p", "log2",
-    "modf", "pow",
+    "modf", "nan", "nearbyint", "pow", "remainder", "rint", "round",
     "sin", "sinh", "sqrt",
     "tan", "tanh", "tgamma", "trunc",
     "y0", "y1",
+    # <stdlib.h> / <string.h>
+    "abort", "abs", "atof", "atoi", "calloc", "div", "exit", "free",
+    "labs", "ldiv", "llabs", "lldiv", "malloc", "rand", "realloc",
+    "srand", "strlen",
 })
 
 
@@ -218,6 +222,10 @@ def emit_instruction(instr: Instruction, em: CEmitter, symbol_map: dict[str, str
             else:
                 fn = "floorf" if instr.result.dtype is Float32 else "floor"
                 em.line(f"{res_t} {result} = {fn}(({res_t})({left}) / ({res_t})({right}));")
+        elif instr.op == BinOp.DIV and kind in ("f", "c"):
+            # Python true division: cast the left operand so integer
+            # operands don't fall into C integer division first.
+            em.line(f"{res_t} {result} = ({res_t})({left}) / ({right});")
         else:
             em.line(f"{res_t} {result} = {left} {_emit_binop(instr.op)} {right};")
 
@@ -320,41 +328,6 @@ def _c_array_literal(name: str, values: list[str]) -> str:
     return f"int64_t {name}[{len(values)}] = {{{', '.join(values)}}};"
 
 
-def _byte_stride_expr(element_factors: list[str], dtype: type[DType]) -> str:
-    return " * ".join([*element_factors, f"sizeof({c_type(dtype)})"])
-
-
-def _ufunc_stride_exprs(p: Param, dims: list[str]) -> list[str]:
-    """Return byte-stride expressions for a ufunc core view."""
-    ndim = len(dims)
-    layout = p.layout
-
-    if isinstance(layout, Strides) and len(layout.strides) >= ndim:
-        result: list[str] = []
-        for stride in layout.strides[:ndim]:
-            if stride is None:
-                # The simplified reference ufunc ABI cannot recover dynamic
-                # core strides from NumPy's steps array yet, so keep the view
-                # compact for now.
-                result.append(f"sizeof({c_type(p.dtype)})")
-            else:
-                result.append(str(stride))
-        return result
-
-    if layout == FOrder:
-        result = []
-        for axis in range(ndim):
-            factors = [f"_pp_dim_{dim}" for dim in dims[:axis]]
-            result.append(_byte_stride_expr(factors, p.dtype))
-        return result
-
-    result = []
-    for axis in range(ndim):
-        factors = [f"_pp_dim_{dim}" for dim in dims[axis + 1:]]
-        result.append(_byte_stride_expr(factors, p.dtype))
-    return result
-
-
 def emit_function(fn: Function, em: CEmitter, symbol_map: dict[str, str] | None = None) -> None:
     emit_function_signature(fn, em)
     em.line("{")
@@ -392,9 +365,11 @@ def emit_ufunc(fn: UFunc, em: CEmitter, symbol_map: dict[str, str] | None = None
     output_params = fn.params[n_in:n_in + n_out]
     out_dtype = fn.return_dtype  # dtype written to returned scalar output(s); None = output buffers
 
+    n_args = n_in + n_out
+
     em.line(f"/* NumPy ufunc wrapper for {fn.name} */")
     em.line(f"/* Signature: {sig} */")
-    em.line(f"static void {fn.name}_ufunc_loop(")
+    em.line(f"void {fn.name}_ufunc_loop(")
     em.indent()
     em.line("char **args,")
     em.line("npy_intp const *dimensions,")
@@ -421,9 +396,22 @@ def emit_ufunc(fn: UFunc, em: CEmitter, symbol_map: dict[str, str] | None = None
     # Output arg pointer(s) — come after inputs in the args/steps arrays.
     for j in range(n_out):
         k = n_in + j
-        dtype = out_dtype if out_dtype is not None else output_params[j].dtype
         em.line(f"char *arg{k} = args[{k}];")
         em.line(f"npy_intp step{k} = steps[{k}];")
+
+    # Inner (core-dimension) strides follow the outer steps in NumPy's
+    # gufunc ABI: steps[n_args + ...] holds one byte stride per core
+    # dimension of each argument, in argument order.
+    core_step_names: dict[int, list[str]] = {}
+    core_offset = n_args
+    for k, dims in enumerate(sig.inputs + sig.outputs):
+        names: list[str] = []
+        for j in range(len(dims)):
+            step_name = f"cstep{k}_{j}"
+            em.line(f"int64_t {step_name} = (int64_t)steps[{core_offset}];")
+            core_offset += 1
+            names.append(step_name)
+        core_step_names[k] = names
 
     em.line()
     em.line("for (npy_intp _i = 0; _i < _pp_outer_n; _i++) {")
@@ -437,7 +425,7 @@ def emit_ufunc(fn: UFunc, em: CEmitter, symbol_map: dict[str, str] | None = None
             strides_name = f"_pp_strides_{i}"
             view_name = f"_pp_arg_{i}"
             em.line(_c_array_literal(shape_name, [f"_pp_dim_{dim}" for dim in dims]))
-            em.line(_c_array_literal(strides_name, _ufunc_stride_exprs(p, dims)))
+            em.line(_c_array_literal(strides_name, core_step_names[i]))
             em.line(
                 f"__pp_array {view_name} = "
                 f"{{arg{i} + _i * step{i}, {len(dims)}, {shape_name}, {strides_name}, 0}};"
@@ -455,7 +443,7 @@ def emit_ufunc(fn: UFunc, em: CEmitter, symbol_map: dict[str, str] | None = None
                 strides_name = f"_pp_strides_{k}"
                 view_name = f"_pp_arg_{k}"
                 em.line(_c_array_literal(shape_name, [f"_pp_dim_{dim}" for dim in dims]))
-                em.line(_c_array_literal(strides_name, _ufunc_stride_exprs(p, dims)))
+                em.line(_c_array_literal(strides_name, core_step_names[k]))
                 em.line(
                     f"__pp_array {view_name} = "
                     f"{{arg{k} + _i * step{k}, {len(dims)}, {shape_name}, {strides_name}, 0}};"
