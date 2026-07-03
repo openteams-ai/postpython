@@ -29,6 +29,7 @@ from typing import Optional
 from .checker import check_source
 from .compiler.frontend import compile_source as _ir_compile, compile_program
 from .compiler.backend.c_backend import emit_module
+from .compiler.backend.ext_module import emit_ext_module, ExtModuleError
 from .compiler.ir import Module
 
 
@@ -40,6 +41,24 @@ _SO_SUFFIX = ".dylib" if platform.system() == "Darwin" else ".so"
 _DEFAULT_CC = "cc"
 _COMPILE_FLAGS = ["-O2", "-fPIC"]
 _LINK_FLAGS = ["-shared", "-lm"]
+# Extension modules resolve CPython symbols at import time; on macOS that
+# requires a bundle with dynamic lookup instead of a plain dylib.
+_EXT_LINK_FLAGS = (
+    ["-bundle", "-undefined", "dynamic_lookup", "-lm"]
+    if platform.system() == "Darwin"
+    else ["-shared", "-lm"]
+)
+
+
+def _ext_suffix() -> str:
+    import importlib.machinery
+    return importlib.machinery.EXTENSION_SUFFIXES[0]
+
+
+def _python_include_flags() -> list[str]:
+    import sysconfig
+    import numpy as np  # type: ignore[import]
+    return [f"-I{sysconfig.get_paths()['include']}", f"-I{np.get_include()}"]
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +116,61 @@ def _link_modules(
             objects.append(obj_path)
 
         _run([cc, *extra_flags, *_LINK_FLAGS, "-o", str(output), *map(str, objects)])
+    finally:
+        if not keep_c:
+            for p in (*c_paths, *objects):
+                p.unlink(missing_ok=True)
+            try:
+                work_dir.rmdir()
+            except OSError:
+                pass
+
+    return output
+
+
+def _build_extension(
+    modules: list[Module],
+    *,
+    module_name: str,
+    output: Path,
+    cc: str,
+    cflags: list[str] | None,
+    keep_c: bool,
+) -> Path:
+    """Compile the program's translation units plus the PyInit shim and
+    link them into an importable CPython extension module."""
+    try:
+        shim_source = emit_ext_module(modules, module_name)
+    except ExtModuleError as exc:
+        raise BuildError(str(exc)) from exc
+
+    extra_flags = list(cflags or [])
+    work_dir = Path(tempfile.mkdtemp(prefix=f"pp-ext-{module_name}-"))
+    objects: list[Path] = []
+    c_paths: list[Path] = []
+    try:
+        # Ordinary translation units: pure C, no Python headers needed.
+        for index, module in enumerate(modules):
+            c_source = emit_module(module, dep_modules=module.dep_modules)
+            c_path = work_dir / f"{index:02d}-{module.name}.c"
+            c_path.write_text(c_source, encoding="utf-8")
+            c_paths.append(c_path)
+            obj_path = c_path.with_suffix(".o")
+            _run([cc, *extra_flags, *_COMPILE_FLAGS, "-c", str(c_path), "-o", str(obj_path)])
+            objects.append(obj_path)
+
+        # The module shim needs CPython and NumPy headers.
+        shim_path = work_dir / f"{module_name}_ext.c"
+        shim_path.write_text(shim_source, encoding="utf-8")
+        c_paths.append(shim_path)
+        shim_obj = shim_path.with_suffix(".o")
+        _run([
+            cc, *extra_flags, *_python_include_flags(), *_COMPILE_FLAGS,
+            "-c", str(shim_path), "-o", str(shim_obj),
+        ])
+        objects.append(shim_obj)
+
+        _run([cc, *extra_flags, *_EXT_LINK_FLAGS, "-o", str(output), *map(str, objects)])
     finally:
         if not keep_c:
             for p in (*c_paths, *objects):
@@ -171,6 +245,8 @@ def build_file(
     keep_c: bool = False,
     numpy_ufunc: bool = False,
     search_paths: list[Path] | None = None,
+    ext_module: bool = False,
+    module_name: Optional[str] = None,
 ) -> Path:
     """Compile a POST Python source *file* — and every POST module it
     imports — into one shared library.
@@ -183,12 +259,34 @@ def build_file(
     *search_paths*. Standard-library and site-packages modules are
     CPython-boundary imports and are never compiled implicitly; pass the
     package's source directory root in *search_paths* to opt a module in.
+
+    With ``ext_module=True`` the output is an importable CPython extension
+    module (spec §9.3): every public ufunc of the entry translation unit —
+    including ones it imports from other POST modules — is registered as a
+    real ``numpy.ufunc``. *module_name* sets the importable name; it
+    defaults to the entry file's stem, or the package directory's name
+    when the entry is an ``__init__.py``.
     """
     path = Path(path)
     modules, errors = compile_program(path, search_paths=search_paths)
     if errors:
         lines = "\n".join(f"  {e}" for e in errors)
         raise BuildError(f"Compiler errors building {str(path)!r}:\n{lines}")
+
+    if ext_module:
+        name = module_name or (
+            path.resolve().parent.name if path.stem == "__init__" else path.stem
+        )
+        if output is None:
+            output = path.resolve().parent / f"{name}{_ext_suffix()}"
+        return _build_extension(
+            modules,
+            module_name=name,
+            output=output,
+            cc=cc,
+            cflags=cflags,
+            keep_c=keep_c,
+        )
 
     if output is None:
         output = path.with_suffix(_SO_SUFFIX)
