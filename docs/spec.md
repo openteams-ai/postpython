@@ -676,6 +676,14 @@ See Section 5.2 for the current structural table.  Diagnostic ranges are reserve
 | PP500–PP599 | ABI, module, linking, and build errors |
 | PP900–PP999 | Implementation-defined or unsupported valid POST Python features |
 
+Assigned module and linking codes (Section 9.1):
+
+| Code  | Diagnostic |
+|-------|------------|
+| PP500 | Circular POST module import |
+| PP502 | Call target cannot be resolved (not defined in the translation unit, not imported from a POST module, and not a known intrinsic) |
+| PP503 | Cross-module call to a private (underscore-prefixed) function |
+
 ## Appendix B: Revision History
 
 | Version | Date       | Notes                       |

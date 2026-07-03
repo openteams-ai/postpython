@@ -308,14 +308,25 @@ def emit_terminator(term: Terminator, em: CEmitter) -> None:
 # Function emission
 # ---------------------------------------------------------------------------
 
+def _is_private(fn: Function) -> bool:
+    """Private (non-public) POST functions get C internal linkage.
+
+    Spec §9.1: public symbols are top-level names not prefixed with `_`.
+    Emitting privates as `static` keeps them out of the link namespace, so
+    same-named helpers in different translation units cannot collide.
+    """
+    return fn.name.startswith("_")
+
+
 def emit_function_signature(fn: Function, em: CEmitter, *, declaration: bool = False) -> None:
     ret = c_type(fn.return_dtype) if fn.return_dtype else "void"
+    storage = "static " if _is_private(fn) else ""
     params = ", ".join(
         f"{c_value_type(p)} _{p.name}"
         for p in [*fn.params, *fn.core_dim_params]
     )
     semi = ";" if declaration else ""
-    em.line(f"{ret} {c_symbol(fn.name)}({params}){semi}")
+    em.line(f"{storage}{ret} {c_symbol(fn.name)}({params}){semi}")
 
 
 def _is_array_param(p: Param) -> bool:
@@ -547,11 +558,32 @@ typedef struct __pp_array {
 """
 
 
-def emit_module(module: Module) -> str:
-    """Emit a complete C99 translation unit for *module*."""
+def emit_module(module: Module, dep_modules: list[Module] | None = None) -> str:
+    """Emit a complete C99 translation unit for *module*.
+
+    *dep_modules* are the POST translation units this module imports from;
+    their public functions get extern declarations so cross-module calls
+    resolve at link time (each dependency is emitted and compiled as its
+    own translation unit).
+    """
     em = CEmitter()
     em.write(_PREAMBLE)
     symbol_map = {fn.name: c_symbol(fn.name) for fn in module.functions}
+
+    # Extern declarations for imported POST functions.
+    dep_modules = dep_modules or []
+    externs = [
+        fn
+        for dep in dep_modules
+        for fn in dep.functions
+        if not _is_private(fn)
+    ]
+    if externs:
+        em.line("/* Functions provided by imported POST translation units. */")
+        for fn in externs:
+            symbol_map.setdefault(fn.name, c_symbol(fn.name))
+            emit_function_signature(fn, em, declaration=True)
+        em.line()
 
     # Forward declarations.
     for fn in module.functions:
