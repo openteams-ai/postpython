@@ -99,11 +99,12 @@ These mirror ppspecial's roadmap and keep the ecosystem coherent:
    should be declared as ordinary git dependencies plus POST
    `search_paths` at build time until #14 lands.
 9. **No binary wheels, ever.** pp* packages publish pure source to PyPI
-   (`py3-none-any`); compiled artifacts are distributed through
-   environment package managers as `libpp<name>` + `pp<name>` split
-   packages, or compiled locally with `postpython build`. No install-
-   or import-time compilation hooks. See postpython's
-   `docs/distribution.md` for the full policy and install layout.
+   (`py3-none-any`). Point users to environment package managers
+   (pixi/conda, nix) by default, via `libpp<name>` + `pp<name>` split
+   packages; explicit local compilation with a POST-compatible compiler
+   chain (from a checkout or the installed pure wheel) is the supported
+   alternative. No install- or import-time compilation hooks. See
+   postpython's `docs/distribution.md` for the full policy and layout.
 
 ## Sequencing guidance
 
