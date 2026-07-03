@@ -29,7 +29,10 @@ This repository contains:
 
 A companion library, [ppspecial](https://github.com/openteams-ai/ppspecial),
 reimplements `scipy.special` in pure POST Python and serves as the standard's
-flagship real-world consumer.
+flagship real-world consumer. It is the first of a family of `pp*` packages
+rebuilding SciPy one subpackage at a time — the project's primary proving
+ground. See [postscipy-roadmap.md](postscipy-roadmap.md) for the package map,
+sequencing, and the compiler-capability matrix that work feeds.
 
 PostPython is not production-ready. It is a reference implementation and design
 vehicle for the standard.
