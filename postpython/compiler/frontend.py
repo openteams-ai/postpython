@@ -1622,40 +1622,50 @@ def compile_source(
 # Program compilation (multiple translation units)
 # ---------------------------------------------------------------------------
 
-def _resolve_post_module(dotted: str, importer: Path) -> Optional[Path]:
+def _resolve_post_module(
+    dotted: str,
+    importer: Path,
+    search_paths: list[Path] | None = None,
+) -> Optional[Path]:
     """Locate the source file for an absolute POST module import.
 
-    First resolves against the importer's source root (the first ancestor
-    directory that is not a package), then falls back to the host
-    interpreter's module resolution. Only ``.py`` sources qualify.
+    Resolution is deliberately narrow: the importer's source root (the
+    first ancestor directory that is not a package) plus any explicitly
+    supplied *search_paths*. Installed site-packages and the standard
+    library are NOT searched — an import that does not resolve here is a
+    CPython-boundary import (spec §9.1), not a translation unit to
+    compile. Arbitrary installed Python must never be pulled into a POST
+    build implicitly.
     """
     root = importer.resolve().parent
     while (root / "__init__.py").exists() and root.parent != root:
         root = root.parent
-    parts = dotted.split(".")
-    candidate = root.joinpath(*parts).with_suffix(".py")
-    if candidate.is_file():
-        return candidate
-    package_init = root.joinpath(*parts, "__init__.py")
-    if package_init.is_file():
-        return package_init
 
-    try:
-        import importlib.util
-        spec = importlib.util.find_spec(dotted)
-    except (ImportError, ValueError, AttributeError):
-        return None
-    if spec is not None and spec.origin and spec.origin.endswith(".py"):
-        return Path(spec.origin)
+    parts = dotted.split(".")
+    for base in [root, *(Path(p).resolve() for p in search_paths or [])]:
+        candidate = base.joinpath(*parts).with_suffix(".py")
+        if candidate.is_file():
+            return candidate
+        package_init = base.joinpath(*parts, "__init__.py")
+        if package_init.is_file():
+            return package_init
     return None
 
 
-def compile_program(path: str | Path) -> tuple[list[Module], list]:
+def compile_program(
+    path: str | Path,
+    *,
+    search_paths: list[Path] | None = None,
+) -> tuple[list[Module], list]:
     """Compile *path* and every POST module it imports, dependencies first.
 
     Returns (modules, errors) where *modules* is dependency-ordered (the
     entry module last). Each imported POST translation unit is checked and
     compiled once; import cycles are diagnosed as PP500.
+
+    POST imports resolve against the entry file's source root plus
+    *search_paths*; anything else (standard library, site-packages) is a
+    CPython-boundary import and is never compiled implicitly.
     """
     errors: list = []
     program: dict[str, Module] = {}
@@ -1696,7 +1706,7 @@ def compile_program(path: str | Path) -> tuple[list[Module], list]:
                     or mod.split(".")[0] == "postpython"
                 ):
                     continue
-                dep_path = _resolve_post_module(mod, file_path)
+                dep_path = _resolve_post_module(mod, file_path, search_paths)
                 if dep_path is not None and dep_path != file_path:
                     compile_unit(dep_path, mod)
 
@@ -1714,6 +1724,29 @@ def compile_program(path: str | Path) -> tuple[list[Module], list]:
         compiled[file_path] = name
 
     compile_unit(Path(path), None)
+
+    # Public function names must be unique across the linked program: every
+    # unit's publics become extern C symbols in one artifact. Diagnose at
+    # compile time (PP501) rather than surfacing a linker error; a stable
+    # module-qualified symbol ABI is future spec work (§9.1).
+    seen_public: dict[str, str] = {}
+    for module in order:
+        for fn in module.functions:
+            if fn.name.startswith("_"):
+                continue
+            if fn.name in seen_public and seen_public[fn.name] != module.name:
+                errors.append(TypeError_PP(
+                    code="PP501",
+                    message=(
+                        f"public function `{fn.name}` is defined by both POST "
+                        f"modules `{seen_public[fn.name]}` and `{module.name}`; "
+                        "public names must be unique across a linked program"
+                    ),
+                    lineno=0,
+                    col_offset=0,
+                ))
+            else:
+                seen_public.setdefault(fn.name, module.name)
     return order, errors
 
 

@@ -137,6 +137,108 @@ def test_private_cross_module_call_reports_pp503(tmp_path):
     assert any(e.code == "PP503" for e in errors), errors
 
 
+def test_duplicate_public_function_across_modules_reports_pp501(tmp_path):
+    _write(tmp_path, "a.py", (
+        "from postyp import Float64\n"
+        "def transform(x: Float64) -> Float64:\n"
+        "    return x + 1.0\n"
+    ))
+    _write(tmp_path, "b.py", (
+        "from postyp import Float64\n"
+        "def transform(x: Float64) -> Float64:\n"
+        "    return x * 2.0\n"
+    ))
+    main = _write(tmp_path, "main.py", (
+        "from postyp import Float64\n"
+        "from a import transform as ta\n"
+        "from b import transform as tb\n"
+        "def f(x: Float64) -> Float64:\n"
+        "    return ta(x) + tb(x)\n"
+    ))
+    _, errors = compile_program(main)
+    pp501 = [e for e in errors if e.code == "PP501"]
+    assert pp501, errors
+    assert "transform" in pp501[0].message
+    assert "`a`" in pp501[0].message and "`b`" in pp501[0].message
+
+
+def test_duplicate_private_helpers_are_fine(tmp_path):
+    # Privates get internal linkage, so same-named helpers must not
+    # trigger PP501.
+    _write(tmp_path, "a.py", (
+        "from postyp import Float64\n"
+        "def _poly(x: Float64) -> Float64:\n"
+        "    return x + 1.0\n"
+        "def fa(x: Float64) -> Float64:\n"
+        "    return _poly(x)\n"
+    ))
+    main = _write(tmp_path, "main.py", (
+        "from postyp import Float64\n"
+        "from a import fa\n"
+        "def _poly(x: Float64) -> Float64:\n"
+        "    return x * 2.0\n"
+        "def f(x: Float64) -> Float64:\n"
+        "    return fa(x) + _poly(x)\n"
+    ))
+    _, errors = compile_program(main)
+    assert errors == [], errors
+
+
+def test_unused_stdlib_import_is_boundary_not_compiled(tmp_path):
+    # `from fractions import Fraction` must classify as a CPython-boundary
+    # import — never pull stdlib source in as a POST translation unit.
+    main = _write(tmp_path, "main.py", (
+        "from postyp import Float64\n"
+        "from fractions import Fraction\n"
+        "def g(x: Float64) -> Float64:\n"
+        "    return x\n"
+    ))
+    modules, errors = compile_program(main)
+    assert errors == [], errors
+    assert [m.name for m in modules] == ["main"]
+    assert "Fraction" in modules[0].boundary_imports
+
+
+def test_called_stdlib_import_is_diagnosed_not_compiled(tmp_path):
+    main = _write(tmp_path, "main.py", (
+        "from postyp import Float64\n"
+        "from fractions import Fraction\n"
+        "def g(x: Float64) -> Float64:\n"
+        "    return Fraction(x)\n"
+    ))
+    modules, errors = compile_program(main)
+    assert [m.name for m in modules] == ["main"]
+    assert any(e.code == "PP900" and "Fraction" in e.message for e in errors)
+
+
+def test_search_paths_opt_in_resolves_external_module(tmp_path):
+    external = tmp_path / "external-root"
+    external.mkdir()
+    (external / "extmod.py").write_text(
+        "from postyp import Float64\n"
+        "def scale(x: Float64) -> Float64:\n"
+        "    return x * 5.0\n"
+    )
+    project = tmp_path / "project"
+    project.mkdir()
+    main = project / "main.py"
+    main.write_text(
+        "from postyp import Float64\n"
+        "from extmod import scale\n"
+        "def f(x: Float64) -> Float64:\n"
+        "    return scale(x)\n"
+    )
+
+    # Without the search path: boundary import, call diagnosed.
+    _, errors = compile_program(main)
+    assert any(e.code == "PP900" and "scale" in e.message for e in errors)
+
+    # With the opt-in search path: resolved, compiled, linked.
+    modules, errors = compile_program(main, search_paths=[external])
+    assert errors == [], errors
+    assert [m.name for m in modules] == ["extmod", "main"]
+
+
 def test_forward_reference_uses_callee_return_dtype():
     module, errors = compile_source(
         "from postyp import Float64, Bool\n"
