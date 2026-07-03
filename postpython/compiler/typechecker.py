@@ -587,12 +587,18 @@ def infer_function(
     node: ast.FunctionDef,
     param_types: dict[str, type[DType]],
     return_dtype: Optional[type[DType]],
+    constants: Optional[dict[str, type[DType]]] = None,
 ) -> tuple[dict[int, type[DType]], list[TypeError_PP]]:
     """Infer types for all sub-expressions in a function body.
+
+    *constants* maps module-level constant names to their dtypes; they
+    bind in the outermost scope so function locals shadow them.
 
     Returns (type_map, errors).
     """
     env = TypeEnv()
+    for name, dtype in (constants or {}).items():
+        env.bind(name, dtype)
     env.push()
     for name, dtype in param_types.items():
         env.bind(name, dtype)

@@ -260,6 +260,7 @@ class FunctionLifter:
         self._errors: list[TypeError_PP] = []
         self._loop_stack: list[tuple[str, str]] = []
         self._param_types: dict[str, type[DType]] = {}
+        self._assigned_names: set[str] = set()
 
     @property
     def errors(self) -> list[TypeError_PP]:
@@ -460,15 +461,24 @@ class FunctionLifter:
         fn = self._current_fn
 
         # Run type inference over the body.
-        self._type_map, tc_errors = infer_function(node, self._param_types, fn.return_dtype)
+        constant_types = {
+            name: dtype for name, (dtype, _) in self._module.constants.items()
+        }
+        self._type_map, tc_errors = infer_function(
+            node, self._param_types, fn.return_dtype, constants=constant_types,
+        )
         self._errors.extend(tc_errors)
 
         # Build IR. Reserve every user-visible name so generated temps
         # can't collide with locals (e.g. a user variable named `c1`).
+        # Names stored anywhere in the body are function-local everywhere
+        # in it (Python scoping) — track them so module constants never
+        # shadow through.
         user_names = {p.name for p in fn.params}
         for sub in ast.walk(node):
             if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Store):
                 user_names.add(sub.id)
+                self._assigned_names.add(sub.id)
             elif isinstance(sub, ast.arg):
                 user_names.add(sub.arg)
         builder = Builder(fn, reserved=user_names)
@@ -815,15 +825,48 @@ class FunctionLifter:
 
         if isinstance(node, ast.Name):
             value = self._locals.get(node.id)
-            if value is None:
+            if value is not None:
+                return value
+            # Python scoping: a name assigned anywhere in the function is
+            # local everywhere in it — reading it before assignment is an
+            # error, never a fall-through to module scope.
+            if node.id in self._assigned_names:
+                self._compiler_error(
+                    node,
+                    "PP100",
+                    f"local variable `{node.id}` referenced before assignment",
+                )
+                return None
+            const = self._module.constants.get(node.id)
+            if const is not None:
+                dtype, pyval = const
+                result = b.make_value("k", dtype)
+                b.emit(Const(result, pyval))
+                return result
+            if node.id in self._module.post_imports:
                 self._compiler_error(
                     node,
                     "PP900",
-                    f"name `{node.id}` is not a local value; module-level "
-                    "constants and imported names are not lowered by this "
-                    "compiler yet",
+                    f"`{node.id}` names a POST function; function references "
+                    "as values are not lowered by this compiler yet",
                 )
-            return value
+                return None
+            boundary = self._module.boundary_imports.get(node.id)
+            if boundary is not None:
+                self._compiler_error(
+                    node,
+                    "PP900",
+                    f"`{node.id}` is imported from `{boundary.module_name}`, "
+                    "which was not resolved as a POST translation unit",
+                )
+                return None
+            self._compiler_error(
+                node,
+                "PP900",
+                f"name `{node.id}` is not a parameter, local, module "
+                "constant, or imported constant",
+            )
+            return None
 
         if isinstance(node, ast.NamedExpr):
             # Walrus operator: assign and yield the value (spec §5.1).
@@ -1470,6 +1513,91 @@ def _iter_import_froms(tree: ast.Module):
             yield node
 
 
+# ---------------------------------------------------------------------------
+# Module-level constants (spec §3: top-level constant definitions)
+# ---------------------------------------------------------------------------
+
+_CONST_DTYPES: dict[type, type[DType]] = {
+    bool: Bool,
+    int: Int64,
+    float: Float64,
+    complex: Complex128,
+}
+
+_FOLD_BINOPS = {
+    ast.Add: lambda a, b: a + b,
+    ast.Sub: lambda a, b: a - b,
+    ast.Mult: lambda a, b: a * b,
+    ast.Div: lambda a, b: a / b,
+    ast.FloorDiv: lambda a, b: a // b,
+    ast.Mod: lambda a, b: a % b,
+    ast.Pow: lambda a, b: a ** b,
+}
+
+
+def _fold_constant_expr(node: ast.expr, constants: dict[str, tuple[type[DType], object]]):
+    """Evaluate a module-level constant expression at compile time.
+
+    Supports numeric literals, references to previously defined constants,
+    unary +/-, and literal arithmetic (matching interpreted semantics).
+    Returns the Python value, or None when the expression is not a
+    compile-time constant.
+    """
+    if isinstance(node, ast.Constant) and type(node.value) in _CONST_DTYPES:
+        return node.value
+    if isinstance(node, ast.Name):
+        entry = constants.get(node.id)
+        return entry[1] if entry is not None else None
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+        operand = _fold_constant_expr(node.operand, constants)
+        if operand is None:
+            return None
+        return operand if isinstance(node.op, ast.UAdd) else -operand
+    if isinstance(node, ast.BinOp):
+        fold = _FOLD_BINOPS.get(type(node.op))
+        if fold is None:
+            return None
+        left = _fold_constant_expr(node.left, constants)
+        right = _fold_constant_expr(node.right, constants)
+        if left is None or right is None:
+            return None
+        try:
+            return fold(left, right)
+        except (ArithmeticError, TypeError):
+            return None
+    return None
+
+
+def _collect_module_constants(tree: ast.Module, module: Module) -> None:
+    """Record foldable module-level constant definitions on *module*.
+
+    Runs after import classification so constant expressions can reference
+    compile-time imports (e.g. ``TWO_PI = 2.0 * PI``). Non-constant
+    top-level assignments (function aliases, containers) are skipped; the
+    alias export policy is separate work (postpython#12).
+    """
+    for node in tree.body:
+        target = None
+        annotated_dtype: Optional[type[DType]] = None
+        if isinstance(node, ast.AnnAssign) and node.value is not None:
+            if isinstance(node.target, ast.Name):
+                target = node.target.id
+                info = resolve_annotation_info(node.annotation)
+                if info.is_array or not info.is_valid or info.dtype is None:
+                    continue
+                annotated_dtype = info.dtype
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1:
+            if isinstance(node.targets[0], ast.Name):
+                target = node.targets[0].id
+        if target is None:
+            continue
+        value = _fold_constant_expr(node.value, module.constants)
+        if value is None:
+            continue
+        dtype = annotated_dtype or _CONST_DTYPES[type(value)]
+        module.constants[target] = (dtype, value)
+
+
 def _classify_imports(
     tree: ast.Module,
     module: Module,
@@ -1486,10 +1614,18 @@ def _classify_imports(
     for node in _iter_import_froms(tree):
         mod = node.module
         if mod == _INTRINSIC_MODULE:
+            # Compile-time imports (spec §9.1): functions lower to libm
+            # calls; numeric constants (PI, E, ...) fold to their values.
+            import postpython.math as _pp_math
             for alias in node.names:
                 if alias.name == "*":
                     continue
-                module.intrinsic_imports[alias.asname or alias.name] = alias.name
+                local = alias.asname or alias.name
+                attr = getattr(_pp_math, alias.name, None)
+                if type(attr) in _CONST_DTYPES:
+                    module.constants[local] = (_CONST_DTYPES[type(attr)], attr)
+                else:
+                    module.intrinsic_imports[local] = alias.name
             continue
         if mod in _COMPILE_TIME_MODULES or mod.split(".")[0] == "postpython":
             continue
@@ -1505,6 +1641,12 @@ def _classify_imports(
             local = alias.asname or alias.name
             imported = ImportedName(local, mod, alias.name)
             if mod in program:
+                dep = program[mod]
+                dep_const = dep.constants.get(alias.name)
+                if dep_const is not None and dep.get_function(alias.name) is None:
+                    # Imported POST constant: fold the value in directly.
+                    module.constants[local] = dep_const
+                    continue
                 module.post_imports[local] = imported
                 if mod not in module.dependencies:
                     module.dependencies.append(mod)
@@ -1543,6 +1685,7 @@ def compile_source(
     errors = []
     program = program or {}
     _classify_imports(tree, module, program, errors)
+    _collect_module_constants(tree, module)
 
     for index, node in enumerate(tree.body):
         if isinstance(node, ast.Expr):
