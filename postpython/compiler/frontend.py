@@ -435,6 +435,7 @@ class FunctionLifter:
             return_dtype = None
 
         # Build the IR function (or ufunc).
+        doc = ast.get_docstring(node)
         if parsed_ufunc_sig is not None:
             fn: Function = UFunc(
                 name=node.name,
@@ -442,9 +443,12 @@ class FunctionLifter:
                 return_dtype=return_dtype,
                 core_dim_params=core_dim_params,
                 ufunc_sig=parsed_ufunc_sig,
+                doc=doc,
             )
         else:
-            fn = Function(name=node.name, params=params, return_dtype=return_dtype)
+            fn = Function(
+                name=node.name, params=params, return_dtype=return_dtype, doc=doc,
+            )
 
         self._current_fn = fn
         self._param_types = param_types

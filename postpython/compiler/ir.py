@@ -266,6 +266,7 @@ class Function:
     return_shape: Shape = field(default_factory=lambda: AnyShape)
     core_dim_params: list[Param] = field(default_factory=list)
     blocks: list[BasicBlock] = field(default_factory=list)
+    doc: Optional[str] = None             # source docstring, if any
 
     @property
     def entry(self) -> BasicBlock:
