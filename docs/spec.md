@@ -681,6 +681,7 @@ Assigned module and linking codes (Section 9.1):
 | Code  | Diagnostic |
 |-------|------------|
 | PP500 | Circular POST module import |
+| PP501 | Duplicate public function name across linked POST translation units |
 | PP502 | Call target cannot be resolved (not defined in the translation unit, not imported from a POST module, and not a known intrinsic) |
 | PP503 | Cross-module call to a private (underscore-prefixed) function |
 

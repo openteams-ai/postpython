@@ -170,6 +170,7 @@ def build_file(
     cflags: list[str] | None = None,
     keep_c: bool = False,
     numpy_ufunc: bool = False,
+    search_paths: list[Path] | None = None,
 ) -> Path:
     """Compile a POST Python source *file* — and every POST module it
     imports — into one shared library.
@@ -177,9 +178,14 @@ def build_file(
     Each translation unit becomes its own object file; the objects are
     linked together, so cross-module calls resolve to the compiled POST
     functions rather than to any same-named libm symbol.
+
+    POST imports resolve against the entry file's source root plus
+    *search_paths*. Standard-library and site-packages modules are
+    CPython-boundary imports and are never compiled implicitly; pass the
+    package's source directory root in *search_paths* to opt a module in.
     """
     path = Path(path)
-    modules, errors = compile_program(path)
+    modules, errors = compile_program(path, search_paths=search_paths)
     if errors:
         lines = "\n".join(f"  {e}" for e in errors)
         raise BuildError(f"Compiler errors building {str(path)!r}:\n{lines}")
