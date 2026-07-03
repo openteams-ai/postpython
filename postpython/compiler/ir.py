@@ -337,6 +337,10 @@ class Module:
     # Module-level constants: name → (dtype, folded Python value). Includes
     # compile-time constant imports (e.g. postpython.math.PI).
     constants: dict[str, tuple[type[DType], object]] = field(default_factory=dict)
+    # Module-level function aliases (``gammaln = lgamma``): alias name →
+    # the aliased name (a function of this module, an imported POST
+    # function's local name, or another alias).
+    function_aliases: dict[str, str] = field(default_factory=dict)
 
     def add_function(self, fn: Function) -> None:
         self.functions.append(fn)

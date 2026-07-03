@@ -553,7 +553,18 @@ Portable POST Python code should make CPython boundary crossings explicit.  A co
 
 Public symbols are top-level functions, dataclasses, type aliases, and constants not prefixed with `_`.  Private (underscore-prefixed) functions have internal linkage: they are not visible outside their translation unit and cannot be called from other POST modules.
 
-Until a package ABI defines module-qualified stable symbol names, the public function names of all translation units linked into a single output artifact share one namespace and must be unique.  A conforming compiler must diagnose a collision (PP501) rather than emit conflicting symbols or rename them silently.  A future package ABI will define stable symbol names, version metadata, and cross-module incremental compilation behavior, lifting this restriction.
+Until a package ABI defines module-qualified stable symbol names, the public function names of all translation units linked into a single output artifact share one namespace and must be unique.  A conforming compiler must diagnose a collision (PP501) rather than emit conflicting symbols or rename them silently.  A future package ABI revision will define module-qualified symbol names, version metadata, and cross-module incremental compilation behavior, lifting this restriction.
+
+### 9.1.1 Package ABI (v1)
+
+Every compiled artifact defines a stable C interface derived from the entry translation unit's namespace — its own public functions, the POST functions it imports (under their local names), and its module-level function aliases (`gammaln = lgamma`).  For each such **export**:
+
+- The artifact defines a C function `pp_<name>` with the export's exact signature.  These `pp_*` symbols are the supported C ABI; kernel symbol names underneath them are implementation-defined (the reference compiler mangles names that collide with libc/libm, e.g. `j0` → `__pp_j0`).
+- An alias exports as its own `pp_<alias>` symbol delegating to the aliased function.  Aliases whose target is private cannot be exported and must be diagnosed.
+- A compiler must be able to emit a self-contained C header declaring every export and the `__pp_array` view struct (Section 9.2), and a machine-readable **export manifest** identifying, per export: the Python name, the `pp_*` symbol, the kernel symbol, the defining module, the kind (`function`, `ufunc`, or `alias`), parameter and return dtypes, and — for vectorized functions — the ufunc loop symbol and layout signature (Section 8.5).  Manifests carry a format version (`"post_abi": 1`).
+- Vectorized functions additionally export their loop symbol `<name>_ufunc_loop` with the NumPy ufunc ABI (Section 8.5).
+
+The `pp_` prefix is reserved: POST source must not define public functions whose names would collide with an artifact's export symbols; compilers diagnose such collisions (PP501).
 
 ### 9.2 Native Array ABI
 
