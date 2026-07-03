@@ -13,6 +13,9 @@ and vectorized kernel model are specified so multiple compiler implementations
 can target the same standard.
 
 The current specification is a draft. See [docs/spec.md](docs/spec.md).
+Distribution policy for compiled packages (source-only PyPI, split
+native packages for conda/pixi/nix) lives in
+[docs/distribution.md](docs/distribution.md).
 
 ## Project Status
 
