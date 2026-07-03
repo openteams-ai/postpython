@@ -1757,6 +1757,25 @@ def compile_source(
             module.add_function(lifter.declare())
             lifters.append(lifter)
 
+    # Module-level function aliases (``gammaln = lgamma``) — collected
+    # after declarations so alias targets are recognizable. Constant
+    # definitions were already claimed by the constant collector.
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and isinstance(node.value, ast.Name)
+            and node.targets[0].id not in module.constants
+        ):
+            target_name = node.value.id
+            if (
+                module.get_function(target_name) is not None
+                or target_name in module.post_imports
+                or target_name in module.function_aliases
+            ):
+                module.function_aliases[node.targets[0].id] = target_name
+
     # Phase 2: lower bodies.
     for lifter in lifters:
         lifter.lower()

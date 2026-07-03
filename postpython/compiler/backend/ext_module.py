@@ -94,23 +94,28 @@ def collect_registrations(modules: list[Module]) -> list[tuple[str, UFunc]]:
 
     The entry unit is the last module in program order. Its namespace is
     mirrored: ufuncs imported from POST dependencies register under their
-    local alias names, then the unit's own public ufuncs (which shadow
-    same-named imports, as in Python).
+    local names, the unit's own public ufuncs, and module-level function
+    aliases (``gammaln = lgamma``) as separately-named ufuncs — including
+    aliases defined in imported modules and re-exported by the entry.
     """
-    entry = modules[-1]
-    by_dotted = dict(zip(entry.dependencies, entry.dep_modules))
+    from .abi import resolve_function
 
+    entry = modules[-1]
     registrations: dict[str, UFunc] = {}
-    for imported in entry.post_imports.values():
-        dep = by_dotted.get(imported.module_name)
-        if dep is None:
-            continue
-        fn = dep.get_function(imported.source_name)
-        if isinstance(fn, UFunc) and fn.ufunc_sig is not None:
-            registrations[imported.local_name] = fn
-    for fn in entry.functions:
+
+    def add(python_name: str) -> None:
+        if python_name.startswith("_") or python_name in registrations:
+            return
+        fn, _ = resolve_function(entry, python_name)
         if isinstance(fn, UFunc) and fn.ufunc_sig is not None and not fn.name.startswith("_"):
-            registrations[fn.name] = fn
+            registrations[python_name] = fn
+
+    for local in entry.post_imports:
+        add(local)
+    for fn in entry.functions:
+        add(fn.name)
+    for alias in entry.function_aliases:
+        add(alias)
     return list(registrations.items())
 
 

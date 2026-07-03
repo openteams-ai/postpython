@@ -19,6 +19,7 @@ ctypes.CDLL or register ufunc loops with NumPy.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import platform
 import subprocess
@@ -28,9 +29,23 @@ from typing import Optional
 
 from .checker import check_source
 from .compiler.frontend import compile_source as _ir_compile, compile_program
+from .compiler.backend.abi import (
+    collect_exports,
+    emit_export_wrappers,
+    emit_header as abi_emit_header,
+    export_manifest,
+)
 from .compiler.backend.c_backend import emit_module
 from .compiler.backend.ext_module import emit_ext_module, ExtModuleError
 from .compiler.ir import Module
+
+
+def _export_wrapper_source(modules: list[Module]) -> str:
+    exports, abi_errors = collect_exports(modules)
+    if abi_errors:
+        lines = "\n".join(f"  {e}" for e in abi_errors)
+        raise BuildError(f"Export ABI errors:\n{lines}")
+    return emit_export_wrappers(exports)
 
 
 # ---------------------------------------------------------------------------
@@ -93,8 +108,13 @@ def _link_modules(
     cflags: list[str] | None,
     keep_c: bool,
     numpy_ufunc: bool,
+    extra_c_sources: list[tuple[str, str]] | None = None,
 ) -> Path:
-    """Emit each module to C, compile to objects, link a shared library."""
+    """Emit each module to C, compile to objects, link a shared library.
+
+    *extra_c_sources* are (stem, C source) pairs compiled and linked in —
+    used for the stable-ABI export-wrapper translation unit.
+    """
     if output is None:
         out_fd, out_str = tempfile.mkstemp(prefix=f"{tag}-", suffix=_SO_SUFFIX)
         os.close(out_fd)
@@ -105,9 +125,13 @@ def _link_modules(
     objects: list[Path] = []
     c_paths: list[Path] = []
     try:
-        for index, module in enumerate(modules):
-            c_source = emit_module(module, dep_modules=module.dep_modules)
-            c_path = work_dir / f"{index:02d}-{module.name}.c"
+        sources = [
+            (f"{index:02d}-{module.name}", emit_module(module, dep_modules=module.dep_modules))
+            for index, module in enumerate(modules)
+        ]
+        sources.extend(extra_c_sources or [])
+        for stem, c_source in sources:
+            c_path = work_dir / f"{stem}.c"
             c_path.write_text(c_source, encoding="utf-8")
             c_paths.append(c_path)
 
@@ -136,6 +160,7 @@ def _build_extension(
     cc: str,
     cflags: list[str] | None,
     keep_c: bool,
+    extra_c_sources: list[tuple[str, str]] | None = None,
 ) -> Path:
     """Compile the program's translation units plus the PyInit shim and
     link them into an importable CPython extension module."""
@@ -150,9 +175,13 @@ def _build_extension(
     c_paths: list[Path] = []
     try:
         # Ordinary translation units: pure C, no Python headers needed.
-        for index, module in enumerate(modules):
-            c_source = emit_module(module, dep_modules=module.dep_modules)
-            c_path = work_dir / f"{index:02d}-{module.name}.c"
+        sources = [
+            (f"{index:02d}-{module.name}", emit_module(module, dep_modules=module.dep_modules))
+            for index, module in enumerate(modules)
+        ]
+        sources.extend(extra_c_sources or [])
+        for stem, c_source in sources:
+            c_path = work_dir / f"{stem}.c"
             c_path.write_text(c_source, encoding="utf-8")
             c_paths.append(c_path)
             obj_path = c_path.with_suffix(".o")
@@ -233,6 +262,7 @@ def build_source(
         cflags=cflags,
         keep_c=keep_c,
         numpy_ufunc=numpy_ufunc,
+        extra_c_sources=[("pp_exports", _export_wrapper_source([module]))],
     )
 
 
@@ -247,6 +277,8 @@ def build_file(
     search_paths: list[Path] | None = None,
     ext_module: bool = False,
     module_name: Optional[str] = None,
+    emit_header: bool = False,
+    emit_manifest: bool = False,
 ) -> Path:
     """Compile a POST Python source *file* — and every POST module it
     imports — into one shared library.
@@ -266,6 +298,11 @@ def build_file(
     real ``numpy.ufunc``. *module_name* sets the importable name; it
     defaults to the entry file's stem, or the package directory's name
     when the entry is an ``__init__.py``.
+
+    Every artifact also defines the stable C ABI symbols ``pp_<export>``
+    (spec §9.1 Package ABI v1). With ``emit_header=True`` /
+    ``emit_manifest=True`` the C header and the JSON export manifest are
+    written next to the output as ``<output>.h`` / ``<output>.json``.
     """
     path = Path(path)
     modules, errors = compile_program(path, search_paths=search_paths)
@@ -273,30 +310,48 @@ def build_file(
         lines = "\n".join(f"  {e}" for e in errors)
         raise BuildError(f"Compiler errors building {str(path)!r}:\n{lines}")
 
+    artifact = module_name or (
+        path.resolve().parent.name if path.stem == "__init__" else path.stem
+    )
+    exports, abi_errors = collect_exports(modules)
+    if abi_errors:
+        lines = "\n".join(f"  {e}" for e in abi_errors)
+        raise BuildError(f"Export ABI errors building {str(path)!r}:\n{lines}")
+    wrapper_source = emit_export_wrappers(exports)
+
     if ext_module:
-        name = module_name or (
-            path.resolve().parent.name if path.stem == "__init__" else path.stem
-        )
         if output is None:
-            output = path.resolve().parent / f"{name}{_ext_suffix()}"
-        return _build_extension(
+            output = path.resolve().parent / f"{artifact}{_ext_suffix()}"
+        result = _build_extension(
             modules,
-            module_name=name,
+            module_name=artifact,
             output=output,
             cc=cc,
             cflags=cflags,
             keep_c=keep_c,
+            extra_c_sources=[("pp_exports", wrapper_source)],
+        )
+    else:
+        if output is None:
+            output = path.with_suffix(_SO_SUFFIX)
+        result = _link_modules(
+            modules,
+            tag=path.stem,
+            output=output,
+            cc=cc,
+            cflags=cflags,
+            keep_c=keep_c,
+            numpy_ufunc=numpy_ufunc,
+            extra_c_sources=[("pp_exports", wrapper_source)],
         )
 
-    if output is None:
-        output = path.with_suffix(_SO_SUFFIX)
-
-    return _link_modules(
-        modules,
-        tag=path.stem,
-        output=output,
-        cc=cc,
-        cflags=cflags,
-        keep_c=keep_c,
-        numpy_ufunc=numpy_ufunc,
-    )
+    if emit_header:
+        result.with_suffix(".h").write_text(
+            abi_emit_header(exports, artifact), encoding="utf-8",
+        )
+    if emit_manifest:
+        result.with_suffix(".json").write_text(
+            json.dumps(export_manifest(exports, artifact), indent=2) + "\n",
+            encoding="utf-8",
+        )
+    return result

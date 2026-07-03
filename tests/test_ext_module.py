@@ -112,6 +112,21 @@ def test_registrations_mirror_entry_namespace(tmp_path):
     assert sorted(names) == ["dot", "expit"]
 
 
+def test_function_aliases_register_as_ufuncs(tmp_path):
+    (tmp_path / "k.py").write_text(
+        "from postyp import Float64\n"
+        "from postpython import vectorize\n"
+        "@vectorize\n"
+        "def lgamma_like(x: Float64) -> Float64:\n"
+        "    return x * 2.0\n"
+        "gammaln = lgamma_like\n"
+    )
+    modules, _ = compile_program(tmp_path / "k.py")
+    names = dict(collect_registrations(modules))
+    assert set(names) == {"lgamma_like", "gammaln"}
+    assert names["gammaln"] is names["lgamma_like"]
+
+
 def test_private_ufuncs_are_not_registered(tmp_path):
     (tmp_path / "k.py").write_text(
         "from postyp import Float64\n"
