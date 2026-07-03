@@ -308,13 +308,31 @@ class UFunc(Function):
 # Module
 # ---------------------------------------------------------------------------
 
+@dataclass(frozen=True)
+class ImportedName:
+    """A name bound by ``from <module> import <name> [as <local>]``."""
+    local_name: str      # name visible in the importing module
+    module_name: str     # dotted module the name comes from
+    source_name: str     # name as defined in that module
+
+
 @dataclass
 class Module:
     """A POST Python translation unit."""
     name: str                               # typically the source filename stem
     functions: list[Function] = field(default_factory=list)
-    # Imports visible to this module (name → resolved module path).
-    imports: dict[str, str] = field(default_factory=dict)
+    # Names imported from other POST translation units, keyed by local name.
+    post_imports: dict[str, ImportedName] = field(default_factory=dict)
+    # Names imported from postpython.math, keyed by local name; the value
+    # is the libm-compatible symbol the call lowers to.
+    intrinsic_imports: dict[str, str] = field(default_factory=dict)
+    # Names imported from CPython-boundary modules (not compilable), keyed
+    # by local name; calls to these are diagnosed rather than lowered.
+    boundary_imports: dict[str, ImportedName] = field(default_factory=dict)
+    # Dotted names of the POST modules this translation unit imports from.
+    dependencies: list[str] = field(default_factory=list)
+    # Resolved Module objects for those dependencies (set by compile_program).
+    dep_modules: list["Module"] = field(default_factory=list, repr=False)
 
     def add_function(self, fn: Function) -> None:
         self.functions.append(fn)

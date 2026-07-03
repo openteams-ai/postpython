@@ -18,7 +18,7 @@ from typing import Optional
 
 from ..checker import check_source, Violation
 from .ir import (
-    Module, Function, UFunc, UFuncSignature,
+    Module, ImportedName, Function, UFunc, UFuncSignature,
     BasicBlock, Param, Value,
     Const, BinOpInstr, UnaryOpInstr,
     ArrayLoad, ArrayStore, ArrayDim, ArrayStride,
@@ -215,9 +215,30 @@ _AST_UNOP: dict[type, UnaryOp] = {
     ast.Not:  UnaryOp.NOT,
 }
 
+# Builtins lowered directly to libm calls. `round` maps to C round(),
+# which rounds half away from zero rather than Python's half-to-even;
+# code sensitive to that difference should avoid round() for now.
+_BUILTIN_LIBM_CALLS: dict[str, str] = {
+    "round": "round",
+}
+
+# Modules whose imports provide compile-time vocabulary (types, decorators)
+# rather than POST translation units or intrinsics.
+_COMPILE_TIME_MODULES: frozenset[str] = frozenset({
+    "postyp", "dataclasses", "typing", "__future__",
+})
+
+_INTRINSIC_MODULE = "postpython.math"
+
 
 class FunctionLifter:
-    """Lift one ast.FunctionDef into a Function IR node."""
+    """Lift one ast.FunctionDef into a Function IR node.
+
+    Lifting happens in two phases so that calls can resolve against every
+    function in the module (forward references) and against imported POST
+    modules: ``declare()`` builds the typed Function shell from the
+    signature; ``lower()`` fills in the body once all declarations exist.
+    """
 
     def __init__(
         self,
@@ -225,17 +246,20 @@ class FunctionLifter:
         module: Module,
         ufunc_sig: Optional[str] = None,
         ufunc_kind: Optional[str] = None,
+        program: Optional[dict[str, Module]] = None,
     ) -> None:
         self._node = node
         self._module = module
         self._ufunc_sig = ufunc_sig
         self._ufunc_kind = ufunc_kind
+        self._program = program or {}
         self._locals: dict[str, Value] = {}  # name → current SSA Value
         self._array_dims: dict[str, list[Value]] = {}
         self._implicit_array_return: str | None = None
         self._type_map: dict[int, type[DType]] = {}
         self._errors: list[TypeError_PP] = []
         self._loop_stack: list[tuple[str, str]] = []
+        self._param_types: dict[str, type[DType]] = {}
 
     @property
     def errors(self) -> list[TypeError_PP]:
@@ -269,6 +293,13 @@ class FunctionLifter:
         )
 
     def lift(self) -> Function:
+        """Declare and lower in one step (single-function convenience)."""
+        fn = self.declare()
+        self.lower()
+        return fn
+
+    def declare(self) -> Function:
+        """Phase 1: build the typed Function shell from the signature."""
         node = self._node
 
         parsed_ufunc_sig = parse_ufunc_sig(self._ufunc_sig) if self._ufunc_sig is not None else None
@@ -416,14 +447,21 @@ class FunctionLifter:
             fn = Function(name=node.name, params=params, return_dtype=return_dtype)
 
         self._current_fn = fn
+        self._param_types = param_types
+        return fn
+
+    def lower(self) -> Function:
+        """Phase 2: lower the body into the declared Function."""
+        node = self._node
+        fn = self._current_fn
 
         # Run type inference over the body.
-        self._type_map, tc_errors = infer_function(node, param_types, return_dtype)
+        self._type_map, tc_errors = infer_function(node, self._param_types, fn.return_dtype)
         self._errors.extend(tc_errors)
 
         # Build IR. Reserve every user-visible name so generated temps
         # can't collide with locals (e.g. a user variable named `c1`).
-        user_names = {p.name for p in params}
+        user_names = {p.name for p in fn.params}
         for sub in ast.walk(node):
             if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Store):
                 user_names.add(sub.id)
@@ -434,10 +472,10 @@ class FunctionLifter:
         builder.set_block(entry)
 
         # Seed locals with parameter values.
-        for p in params:
+        for p in fn.params:
             v = Value(p.name, p.dtype, p.shape, p.layout, p.is_array, p.is_output)
             self._locals[p.name] = v
-        for p in core_dim_params:
+        for p in fn.core_dim_params:
             self._locals[p.name] = Value(p.name, p.dtype)
 
         # Lower the body.
@@ -993,20 +1031,97 @@ class FunctionLifter:
             node.func.id if isinstance(node.func, ast.Name)
             else str(ast.unparse(node.func))
         )
-        # Infer return dtype: promote argument types, falling back to Float64
-        # for known math functions and Int64 for pure integer operations.
+
+        symbol, callee = self._resolve_callee(node, func_name)
+        if symbol is None:
+            return None  # diagnostic already recorded
+
+        if callee is not None and callee.core_dim_params:
+            args.extend(self._resolve_call_core_dims(callee, node.args))
+
+        if callee is not None:
+            # POST function (this module or an imported one): the callee's
+            # signature is the source of truth for the result dtype.
+            if callee.return_dtype is None:
+                b.emit(Call(None, symbol, args))
+                return None
+            result = b.make_value("ret", callee.return_dtype)
+            b.emit(Call(result, symbol, args))
+            return result
+
+        # Intrinsic (postpython.math / libm): infer the return dtype by
+        # promoting argument types, falling back to Float64.
         if args:
             ret_dtype = args[0].dtype
             for a in args[1:]:
                 ret_dtype = promote(ret_dtype, a.dtype)
         else:
             ret_dtype = Float64
-        callee = self._module.get_function(func_name)
-        if callee is not None and callee.core_dim_params:
-            args.extend(self._resolve_call_core_dims(callee, node.args))
         result = b.make_value("ret", ret_dtype)
-        b.emit(Call(result, func_name, args))
+        b.emit(Call(result, symbol, args))
         return result
+
+    def _resolve_callee(self, node: ast.Call, name: str) -> tuple[Optional[str], Optional[Function]]:
+        """Resolve a called name to (symbol, callee IR).
+
+        Resolution order: functions of this module (including forward
+        references, since all declarations exist before bodies are
+        lowered), names imported from POST modules (following aliases),
+        postpython.math intrinsics, then a small builtin whitelist.
+        Anything else is diagnosed — per spec §9.1, a call must not be
+        silently compiled against an arbitrary imported (or libm) symbol.
+        """
+        fn = self._module.get_function(name)
+        if fn is not None:
+            return name, fn
+
+        imp = self._module.post_imports.get(name)
+        if imp is not None:
+            dep = self._program.get(imp.module_name)
+            callee = dep.get_function(imp.source_name) if dep is not None else None
+            if callee is None:
+                self._compiler_error(
+                    node,
+                    "PP502",
+                    f"cannot find function `{imp.source_name}` in POST module "
+                    f"`{imp.module_name}`",
+                )
+                return None, None
+            if imp.source_name.startswith("_"):
+                self._compiler_error(
+                    node,
+                    "PP503",
+                    f"`{imp.source_name}` is private to POST module "
+                    f"`{imp.module_name}` and cannot be called across modules",
+                )
+                return None, None
+            return imp.source_name, callee
+
+        intrinsic = self._module.intrinsic_imports.get(name)
+        if intrinsic is not None:
+            return intrinsic, None
+
+        boundary = self._module.boundary_imports.get(name)
+        if boundary is not None:
+            self._compiler_error(
+                node,
+                "PP900",
+                f"call to `{name}` imported from `{boundary.module_name}`, "
+                "which was not resolved as a POST translation unit; "
+                "CPython-boundary calls are not lowered by this compiler yet",
+            )
+            return None, None
+
+        if name in _BUILTIN_LIBM_CALLS:
+            return _BUILTIN_LIBM_CALLS[name], None
+
+        self._compiler_error(
+            node,
+            "PP502",
+            f"call to unknown function `{name}`; it is not defined in this "
+            "module and not imported from a POST module",
+        )
+        return None, None
 
     def _resolve_call_core_dims(self, callee: Function, arg_nodes: list[ast.expr]) -> list[Value]:
         resolved: list[Value] = []
@@ -1345,12 +1460,70 @@ def _extract_ufunc_decorator(node: ast.FunctionDef) -> _UFuncDecorator | None:
     return None
 
 
-def compile_source(source: str, filename: str = "<unknown>") -> tuple[Module, list]:
+def _iter_import_froms(tree: ast.Module):
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            yield node
+
+
+def _classify_imports(
+    tree: ast.Module,
+    module: Module,
+    program: dict[str, Module],
+    errors: list,
+) -> None:
+    """Sort ``from X import name`` bindings into POST / intrinsic / boundary.
+
+    A module counts as a POST module import only when it has already been
+    compiled into *program* (compile_program does this, dependencies
+    first). Everything unresolved is a CPython-boundary import: legal to
+    import, diagnosed only if called.
+    """
+    for node in _iter_import_froms(tree):
+        mod = node.module
+        if mod == _INTRINSIC_MODULE:
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                module.intrinsic_imports[alias.asname or alias.name] = alias.name
+            continue
+        if mod in _COMPILE_TIME_MODULES or mod.split(".")[0] == "postpython":
+            continue
+        for alias in node.names:
+            if alias.name == "*":
+                errors.append(TypeError_PP(
+                    code="PP900",
+                    message=f"`from {mod} import *` is not supported for POST module imports",
+                    lineno=node.lineno,
+                    col_offset=node.col_offset,
+                ))
+                continue
+            local = alias.asname or alias.name
+            imported = ImportedName(local, mod, alias.name)
+            if mod in program:
+                module.post_imports[local] = imported
+                if mod not in module.dependencies:
+                    module.dependencies.append(mod)
+            else:
+                module.boundary_imports[local] = imported
+
+
+def compile_source(
+    source: str,
+    filename: str = "<unknown>",
+    *,
+    program: Optional[dict[str, Module]] = None,
+) -> tuple[Module, list]:
     """Parse and lower *source* to a POST Python Module.
 
     Returns (module, errors) where errors is a list of Violation or
     type-error strings.  An empty error list means the translation
     succeeded cleanly.
+
+    *program* maps dotted module names to already-compiled POST Modules;
+    calls to names imported from those modules resolve against their IR
+    (see compile_program). Without it, POST-style imports are treated as
+    CPython-boundary imports.
     """
     # 1. Checker pass.
     violations = check_source(source, filename=filename)
@@ -1364,6 +1537,8 @@ def compile_source(source: str, filename: str = "<unknown>") -> tuple[Module, li
     stem = Path(filename).stem if filename != "<unknown>" else "module"
     module = Module(name=stem)
     errors = []
+    program = program or {}
+    _classify_imports(tree, module, program, errors)
 
     for index, node in enumerate(tree.body):
         if isinstance(node, ast.Expr):
@@ -1403,11 +1578,9 @@ def compile_source(source: str, filename: str = "<unknown>") -> tuple[Module, li
                 col_offset=node.col_offset,
             ))
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef):
-            # Skip nested functions (they'll be lifted by their parent).
-            pass
-
+    # Phase 1: declare every function so calls (including forward
+    # references) can resolve against complete signatures.
+    lifters: list[FunctionLifter] = []
     for node in tree.body:
         if isinstance(node, ast.FunctionDef):
             ufunc_decorator = _extract_ufunc_decorator(node)
@@ -1433,12 +1606,115 @@ def compile_source(source: str, filename: str = "<unknown>") -> tuple[Module, li
                     ))
                     continue
 
-            lifter = FunctionLifter(node, module, ufunc_sig, ufunc_kind)
-            fn = lifter.lift()
-            module.add_function(fn)
-            errors.extend(lifter.errors)
+            lifter = FunctionLifter(node, module, ufunc_sig, ufunc_kind, program=program)
+            module.add_function(lifter.declare())
+            lifters.append(lifter)
+
+    # Phase 2: lower bodies.
+    for lifter in lifters:
+        lifter.lower()
+        errors.extend(lifter.errors)
 
     return module, errors
+
+
+# ---------------------------------------------------------------------------
+# Program compilation (multiple translation units)
+# ---------------------------------------------------------------------------
+
+def _resolve_post_module(dotted: str, importer: Path) -> Optional[Path]:
+    """Locate the source file for an absolute POST module import.
+
+    First resolves against the importer's source root (the first ancestor
+    directory that is not a package), then falls back to the host
+    interpreter's module resolution. Only ``.py`` sources qualify.
+    """
+    root = importer.resolve().parent
+    while (root / "__init__.py").exists() and root.parent != root:
+        root = root.parent
+    parts = dotted.split(".")
+    candidate = root.joinpath(*parts).with_suffix(".py")
+    if candidate.is_file():
+        return candidate
+    package_init = root.joinpath(*parts, "__init__.py")
+    if package_init.is_file():
+        return package_init
+
+    try:
+        import importlib.util
+        spec = importlib.util.find_spec(dotted)
+    except (ImportError, ValueError, AttributeError):
+        return None
+    if spec is not None and spec.origin and spec.origin.endswith(".py"):
+        return Path(spec.origin)
+    return None
+
+
+def compile_program(path: str | Path) -> tuple[list[Module], list]:
+    """Compile *path* and every POST module it imports, dependencies first.
+
+    Returns (modules, errors) where *modules* is dependency-ordered (the
+    entry module last). Each imported POST translation unit is checked and
+    compiled once; import cycles are diagnosed as PP500.
+    """
+    errors: list = []
+    program: dict[str, Module] = {}
+    order: list[Module] = []
+    visiting: set[Path] = set()
+    compiled: dict[Path, str] = {}  # resolved file → registered dotted name
+
+    def compile_unit(file_path: Path, dotted: Optional[str]) -> None:
+        file_path = file_path.resolve()
+        if file_path in compiled:
+            # Same file reachable under a second dotted spelling.
+            if dotted is not None and dotted not in program:
+                program[dotted] = program[compiled[file_path]]
+            return
+        if file_path in visiting:
+            errors.append(TypeError_PP(
+                code="PP500",
+                message=f"circular POST module import involving `{file_path}`",
+                lineno=0,
+                col_offset=0,
+            ))
+            return
+        visiting.add(file_path)
+
+        source = file_path.read_text(encoding="utf-8")
+        try:
+            tree = ast.parse(source, filename=str(file_path), type_comments=True)
+        except SyntaxError:
+            tree = None  # checker will report PP000 below
+
+        # Depth-first: resolve and compile POST dependencies first.
+        if tree is not None:
+            for node in _iter_import_froms(tree):
+                mod = node.module
+                if (
+                    mod == _INTRINSIC_MODULE
+                    or mod in _COMPILE_TIME_MODULES
+                    or mod.split(".")[0] == "postpython"
+                ):
+                    continue
+                dep_path = _resolve_post_module(mod, file_path)
+                if dep_path is not None and dep_path != file_path:
+                    compile_unit(dep_path, mod)
+
+        module, unit_errors = compile_source(
+            source, filename=str(file_path), program=program,
+        )
+        module.dep_modules = [
+            program[dep] for dep in module.dependencies if dep in program
+        ]
+        name = dotted if dotted is not None else file_path.stem
+        program[name] = module
+        order.append(module)
+        errors.extend(unit_errors)
+        visiting.discard(file_path)
+        compiled[file_path] = name
+
+    compile_unit(Path(path), None)
+    return order, errors
 
 
 def compile_file(path: str | Path) -> tuple[Module, list]:
