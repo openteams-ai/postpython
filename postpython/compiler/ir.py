@@ -334,6 +334,9 @@ class Module:
     dependencies: list[str] = field(default_factory=list)
     # Resolved Module objects for those dependencies (set by compile_program).
     dep_modules: list["Module"] = field(default_factory=list, repr=False)
+    # Module-level constants: name → (dtype, folded Python value). Includes
+    # compile-time constant imports (e.g. postpython.math.PI).
+    constants: dict[str, tuple[type[DType], object]] = field(default_factory=dict)
 
     def add_function(self, fn: Function) -> None:
         self.functions.append(fn)

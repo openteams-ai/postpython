@@ -216,10 +216,9 @@ def _assert_pp900(source: str, needle: str):
 def test_unknown_name_reports_pp900():
     _assert_pp900(
         "from postyp import Float64\n"
-        "from postpython.math import PI\n"
         "def circ(r: Float64) -> Float64:\n"
-        "    return 2.0 * PI * r\n",
-        "PI",
+        "    return 2.0 * SPEED_OF_LIGHT * r\n",
+        "SPEED_OF_LIGHT",
     )
 
 
