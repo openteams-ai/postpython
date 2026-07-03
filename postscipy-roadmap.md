@@ -98,6 +98,12 @@ These mirror ppspecial's roadmap and keep the ecosystem coherent:
    has them (ppstats → ppspecial). They exercise the packaging story and
    should be declared as ordinary git dependencies plus POST
    `search_paths` at build time until #14 lands.
+9. **No binary wheels, ever.** pp* packages publish pure source to PyPI
+   (`py3-none-any`); compiled artifacts are distributed through
+   environment package managers as `libpp<name>` + `pp<name>` split
+   packages, or compiled locally with `postpython build`. No install-
+   or import-time compilation hooks. See postpython's
+   `docs/distribution.md` for the full policy and install layout.
 
 ## Sequencing guidance
 

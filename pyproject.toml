@@ -32,6 +32,7 @@ narwhals = ["narwhals"]
 dev = ["pytest>=7", "numpy", "narwhals"]
 
 [project.scripts]
+postpython = "postpython.cli:main"
 postpython-check = "postpython.checker:_main"
 
 [project.urls]
