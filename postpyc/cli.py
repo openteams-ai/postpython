@@ -57,6 +57,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
         cc=args.cc,
         cflags=args.cflags,
         keep_c=args.keep_c,
+        cross_module_inline=args.cross_module_inline,
         search_paths=[Path(p) for p in args.search_path] or None,
     )
 
@@ -141,6 +142,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                        help="write the JSON export manifest next to the output")
     build.add_argument("--search-path", action="append", default=[],
                        metavar="DIR", help="additional POST module source root")
+    build.add_argument(
+        "--cross-module-inline", action="store_true",
+        help="replicate imported POST functions as static-inline copies in "
+             "importing translation units so the C compiler can inline "
+             "across module boundaries (public symbols are unchanged)",
+    )
     build.add_argument("--cc", default="cc", help="C compiler (default: cc)")
     build.add_argument("--cflags", nargs="*", default=None,
                        help="extra flags for compile and link")

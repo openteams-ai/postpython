@@ -129,6 +129,7 @@ def _link_modules(
     cflags: list[str] | None,
     keep_c: bool,
     numpy_ufunc: bool,
+    cross_module_inline: bool = False,
     extra_c_sources: list[tuple[str, str]] | None = None,
 ) -> Path:
     """Emit each module to C, compile to objects, link a shared library.
@@ -147,7 +148,11 @@ def _link_modules(
     c_paths: list[Path] = []
     try:
         sources = [
-            (f"{index:02d}-{module.name}", emit_module(module, dep_modules=module.dep_modules))
+            (
+                f"{index:02d}-{module.name}",
+                emit_module(module, dep_modules=module.dep_modules,
+                            inline_deps=cross_module_inline),
+            )
             for index, module in enumerate(modules)
         ]
         sources.extend(extra_c_sources or [])
@@ -181,6 +186,7 @@ def _build_extension(
     cc: str,
     cflags: list[str] | None,
     keep_c: bool,
+    cross_module_inline: bool = False,
     extra_c_sources: list[tuple[str, str]] | None = None,
 ) -> Path:
     """Compile the program's translation units plus the PyInit shim and
@@ -197,7 +203,11 @@ def _build_extension(
     try:
         # Ordinary translation units: pure C, no Python headers needed.
         sources = [
-            (f"{index:02d}-{module.name}", emit_module(module, dep_modules=module.dep_modules))
+            (
+                f"{index:02d}-{module.name}",
+                emit_module(module, dep_modules=module.dep_modules,
+                            inline_deps=cross_module_inline),
+            )
             for index, module in enumerate(modules)
         ]
         sources.extend(extra_c_sources or [])
@@ -295,6 +305,7 @@ def build_file(
     cflags: list[str] | None = None,
     keep_c: bool = False,
     numpy_ufunc: bool = False,
+    cross_module_inline: bool = False,
     search_paths: list[Path] | None = None,
     ext_module: bool = False,
     module_name: Optional[str] = None,
@@ -307,6 +318,16 @@ def build_file(
     Each translation unit becomes its own object file; the objects are
     linked together, so cross-module calls resolve to the compiled POST
     functions rather than to any same-named libm symbol.
+
+    With ``cross_module_inline=True`` every translation unit additionally
+    receives ``static inline`` replicas of the POST functions it imports
+    (transitively), letting the C compiler inline small kernels across
+    module boundaries without LTO.  Public symbols and the artifact's
+    C ABI are unchanged — each unit still defines its own external
+    functions — so this is purely a code-generation choice; it trades
+    compile time and code size for cross-module call elimination and is
+    worthwhile mainly when cheap (few-flop, non-libm) kernels sit in hot
+    cross-module loops.
 
     POST imports resolve against the entry file's source root plus
     *search_paths*. Standard-library and site-packages modules are
@@ -352,6 +373,7 @@ def build_file(
             cc=cc,
             cflags=cflags,
             keep_c=keep_c,
+            cross_module_inline=cross_module_inline,
             extra_c_sources=[("pp_exports", wrapper_source)],
         )
     else:
@@ -365,6 +387,7 @@ def build_file(
             cflags=cflags,
             keep_c=keep_c,
             numpy_ufunc=numpy_ufunc,
+            cross_module_inline=cross_module_inline,
             extra_c_sources=[("pp_exports", wrapper_source)],
         )
 

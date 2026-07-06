@@ -318,15 +318,25 @@ def _is_private(fn: Function) -> bool:
     return fn.name.startswith("_")
 
 
-def emit_function_signature(fn: Function, em: CEmitter, *, declaration: bool = False) -> None:
+def emit_function_signature(
+    fn: Function,
+    em: CEmitter,
+    *,
+    declaration: bool = False,
+    name: Optional[str] = None,
+    storage: Optional[str] = None,
+) -> None:
+    """*name* and *storage* override the default symbol and storage class —
+    used when replicating imported functions as ``static inline`` copies."""
     ret = c_type(fn.return_dtype) if fn.return_dtype else "void"
-    storage = "static " if _is_private(fn) else ""
+    if storage is None:
+        storage = "static " if _is_private(fn) else ""
     params = ", ".join(
         f"{c_value_type(p)} _{p.name}"
         for p in [*fn.params, *fn.core_dim_params]
     )
     semi = ";" if declaration else ""
-    em.line(f"{storage}{ret} {c_symbol(fn.name)}({params}){semi}")
+    em.line(f"{storage}{ret} {name or c_symbol(fn.name)}({params}){semi}")
 
 
 def _is_array_param(p: Param) -> bool:
@@ -339,8 +349,15 @@ def _c_array_literal(name: str, values: list[str]) -> str:
     return f"int64_t {name}[{len(values)}] = {{{', '.join(values)}}};"
 
 
-def emit_function(fn: Function, em: CEmitter, symbol_map: dict[str, str] | None = None) -> None:
-    emit_function_signature(fn, em)
+def emit_function(
+    fn: Function,
+    em: CEmitter,
+    symbol_map: dict[str, str] | None = None,
+    *,
+    name: Optional[str] = None,
+    storage: Optional[str] = None,
+) -> None:
+    emit_function_signature(fn, em, name=name, storage=storage)
     em.line("{")
     em.indent()
     for bb in fn.blocks:
@@ -558,32 +575,108 @@ typedef struct __pp_array {
 """
 
 
-def emit_module(module: Module, dep_modules: list[Module] | None = None) -> str:
+def transitive_dep_modules(dep_modules: list[Module]) -> list[Module]:
+    """The transitive closure of *dep_modules*, dependencies first, each
+    translation unit once (module names are unique within a program)."""
+    seen: dict[str, Module] = {}
+
+    def visit(deps: list[Module]) -> None:
+        for dep in deps:
+            if dep.name not in seen:
+                visit(dep.dep_modules)
+                seen[dep.name] = dep
+
+    visit(dep_modules)
+    return list(seen.values())
+
+
+def _inline_unit_tag(module_name: str) -> str:
+    """Module name as a C identifier fragment (packages contain dots)."""
+    return "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in module_name)
+
+
+def _emit_inline_deps(deps: list[Module], em: CEmitter) -> dict[str, str]:
+    """Replicate every function of *deps* (transitive, dependencies first)
+    into the current translation unit as ``static inline`` definitions, so
+    the C compiler can inline across POST module boundaries (spec §9.1).
+
+    The replicas have internal linkage and never replace the external
+    definitions each unit still emits for itself: public symbols stay
+    link-visible and the ufunc loop wrappers stay in their own units.
+    Privates are renamed per unit (``__ppi_<unit><name>``) so same-named
+    helpers from different units cannot collide here; publics keep their
+    (possibly mangled, cf. ``c_symbol``) names, which the replicas shadow
+    locally.  Returns the public name → symbol map for the importing
+    module's calls.
+    """
+    public_map = {
+        fn.name: c_symbol(fn.name)
+        for dep in deps
+        for fn in dep.functions
+        if not _is_private(fn)
+    }
+    em.line("/* Imported POST translation units, replicated with internal")
+    em.line("   linkage for cross-module inlining.  External definitions of")
+    em.line("   these functions remain in their own translation units. */")
+    for dep in deps:
+        tag = _inline_unit_tag(dep.name)
+        unit_map = dict(public_map)
+        for fn in dep.functions:
+            if _is_private(fn):
+                unit_map[fn.name] = f"__ppi_{tag}{fn.name}"
+        for fn in dep.functions:
+            # For vectorized functions only the scalar/core kernel is
+            # replicated; the NumPy loop wrapper stays external.
+            emit_function(
+                fn, em, unit_map,
+                name=unit_map[fn.name],
+                storage="static inline ",
+            )
+            em.line()
+    return public_map
+
+
+def emit_module(
+    module: Module,
+    dep_modules: list[Module] | None = None,
+    *,
+    inline_deps: bool = False,
+) -> str:
     """Emit a complete C99 translation unit for *module*.
 
     *dep_modules* are the POST translation units this module imports from;
     their public functions get extern declarations so cross-module calls
     resolve at link time (each dependency is emitted and compiled as its
     own translation unit).
+
+    With *inline_deps* the dependencies (transitively) are instead
+    replicated into this translation unit as ``static inline`` definitions
+    and calls bind to the local replicas, giving the C compiler
+    cross-module inlining without LTO.  Public symbols are unaffected:
+    every unit still emits its own external definitions.
     """
     em = CEmitter()
     em.write(_PREAMBLE)
     symbol_map = {fn.name: c_symbol(fn.name) for fn in module.functions}
 
-    # Extern declarations for imported POST functions.
     dep_modules = dep_modules or []
-    externs = [
-        fn
-        for dep in dep_modules
-        for fn in dep.functions
-        if not _is_private(fn)
-    ]
-    if externs:
-        em.line("/* Functions provided by imported POST translation units. */")
-        for fn in externs:
-            symbol_map.setdefault(fn.name, c_symbol(fn.name))
-            emit_function_signature(fn, em, declaration=True)
+    if inline_deps and dep_modules:
+        symbol_map.update(_emit_inline_deps(transitive_dep_modules(dep_modules), em))
         em.line()
+    else:
+        # Extern declarations for imported POST functions.
+        externs = [
+            fn
+            for dep in dep_modules
+            for fn in dep.functions
+            if not _is_private(fn)
+        ]
+        if externs:
+            em.line("/* Functions provided by imported POST translation units. */")
+            for fn in externs:
+                symbol_map.setdefault(fn.name, c_symbol(fn.name))
+                emit_function_signature(fn, em, declaration=True)
+            em.line()
 
     # Forward declarations.
     for fn in module.functions:

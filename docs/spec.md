@@ -557,6 +557,8 @@ A package may instead provide an explicit compile entry named `__post__.py` — 
 
 Public symbols are top-level functions, dataclasses, type aliases, and constants not prefixed with `_`.  Private (underscore-prefixed) functions have internal linkage: they are not visible outside their translation unit and cannot be called from other POST modules.
 
+A compiler may additionally replicate imported POST function definitions into importing translation units with internal linkage (for example, emitted `static inline` copies) to enable cross-module inlining, provided every public function remains defined at its public symbol and observable behavior is unchanged.
+
 Until a package ABI defines module-qualified stable symbol names, the public function names of all translation units linked into a single output artifact share one namespace and must be unique.  A conforming compiler must diagnose a collision (PP501) rather than emit conflicting symbols or rename them silently.  A future package ABI revision will define module-qualified symbol names, version metadata, and cross-module incremental compilation behavior, lifting this restriction.
 
 ### 9.1.1 Package ABI (v1)
