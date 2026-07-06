@@ -2,7 +2,7 @@ site_name: POST Python
 site_description: >-
   Performance Optimized Statically Typed Python — a compilable subset of
   Python with a normative specification and a reference AOT compiler.
-site_url: https://openteams-ai.github.io/postpython/
+site_url: https://post-py.org/
 repo_url: https://github.com/openteams-ai/postpython
 repo_name: openteams-ai/postpython
 edit_uri: edit/main/docs/
