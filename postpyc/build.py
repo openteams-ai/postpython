@@ -56,6 +56,18 @@ _SO_SUFFIX = ".dylib" if platform.system() == "Darwin" else ".so"
 _DEFAULT_CC = "cc"
 _COMPILE_FLAGS = ["-O2", "-fPIC"]
 _LINK_FLAGS = ["-shared", "-lm"]
+# Floating-point modes (spec §4.1.2). Strict is the default: IEEE 754
+# per-operation semantics at the declared width. `-ffp-contract=off`
+# disables fused-multiply-add contraction, which gcc and clang otherwise
+# apply at -O2 and which changes results. "fast" is the explicit,
+# non-conforming opt-in. FP flags are compile-time only — they are not
+# passed at link time, so gcc never links crtfastmath.o (which would
+# flip the whole host process, e.g. the importing CPython, to
+# flush-to-zero).
+_FP_FLAGS: dict[str, list[str]] = {
+    "strict": ["-ffp-contract=off"],
+    "fast": ["-ffast-math"],
+}
 # Extension modules resolve CPython symbols at import time; on macOS that
 # requires a bundle with dynamic lookup instead of a plain dylib.
 _EXT_LINK_FLAGS = (
@@ -120,6 +132,16 @@ def _numpy_flags(numpy_ufunc: bool) -> list[str]:
     return [f"-I{np.get_include()}", "-DNUMPY_UFUNC"]
 
 
+def _fp_flags(fp: str) -> list[str]:
+    try:
+        return _FP_FLAGS[fp]
+    except KeyError:
+        raise BuildError(
+            f"unknown floating-point mode {fp!r}; expected one of "
+            f"{sorted(_FP_FLAGS)}"
+        ) from None
+
+
 def _link_modules(
     modules: list[Module],
     *,
@@ -129,6 +151,7 @@ def _link_modules(
     cflags: list[str] | None,
     keep_c: bool,
     numpy_ufunc: bool,
+    fp: str = "strict",
     extra_c_sources: list[tuple[str, str]] | None = None,
 ) -> Path:
     """Emit each module to C, compile to objects, link a shared library.
@@ -136,6 +159,7 @@ def _link_modules(
     *extra_c_sources* are (stem, C source) pairs compiled and linked in —
     used for the stable-ABI export-wrapper translation unit.
     """
+    fp_flags = _fp_flags(fp)
     if output is None:
         out_fd, out_str = tempfile.mkstemp(prefix=f"{tag}-", suffix=_SO_SUFFIX)
         os.close(out_fd)
@@ -157,7 +181,7 @@ def _link_modules(
             c_paths.append(c_path)
 
             obj_path = c_path.with_suffix(".o")
-            _run([cc, *extra_flags, *_COMPILE_FLAGS, "-c", str(c_path), "-o", str(obj_path)])
+            _run([cc, *extra_flags, *fp_flags, *_COMPILE_FLAGS, "-c", str(c_path), "-o", str(obj_path)])
             objects.append(obj_path)
 
         _run([cc, *extra_flags, *_LINK_FLAGS, "-o", str(output), *map(str, objects)])
@@ -181,6 +205,7 @@ def _build_extension(
     cc: str,
     cflags: list[str] | None,
     keep_c: bool,
+    fp: str = "strict",
     extra_c_sources: list[tuple[str, str]] | None = None,
 ) -> Path:
     """Compile the program's translation units plus the PyInit shim and
@@ -190,6 +215,7 @@ def _build_extension(
     except ExtModuleError as exc:
         raise BuildError(str(exc)) from exc
 
+    fp_flags = _fp_flags(fp)
     extra_flags = list(cflags or [])
     work_dir = Path(tempfile.mkdtemp(prefix=f"pp-ext-{module_name}-"))
     objects: list[Path] = []
@@ -206,7 +232,7 @@ def _build_extension(
             c_path.write_text(c_source, encoding="utf-8")
             c_paths.append(c_path)
             obj_path = c_path.with_suffix(".o")
-            _run([cc, *extra_flags, *_COMPILE_FLAGS, "-c", str(c_path), "-o", str(obj_path)])
+            _run([cc, *extra_flags, *fp_flags, *_COMPILE_FLAGS, "-c", str(c_path), "-o", str(obj_path)])
             objects.append(obj_path)
 
         # The module shim needs CPython and NumPy headers.
@@ -215,7 +241,7 @@ def _build_extension(
         c_paths.append(shim_path)
         shim_obj = shim_path.with_suffix(".o")
         _run([
-            cc, *extra_flags, *_python_include_flags(), *_COMPILE_FLAGS,
+            cc, *extra_flags, *fp_flags, *_python_include_flags(), *_COMPILE_FLAGS,
             "-c", str(shim_path), "-o", str(shim_obj),
         ])
         objects.append(shim_obj)
@@ -242,6 +268,7 @@ def build_source(
     cflags: list[str] | None = None,
     keep_c: bool = False,
     numpy_ufunc: bool = False,
+    fp: str = "strict",
 ) -> Path:
     """Compile *source* (a single POST Python translation unit) to a
     shared library.
@@ -258,6 +285,9 @@ def build_source(
     cflags      Extra flags prepended to the compile command.
     keep_c      If True, do not delete the intermediate .c files.
     numpy_ufunc If True, pass ``-DNUMPY_UFUNC`` and include NumPy headers.
+    fp          Floating-point mode (spec §4.1.2): ``"strict"`` (default,
+                IEEE 754 per-operation semantics) or ``"fast"``
+                (non-conforming fast-math opt-in).
 
     Returns
     -------
@@ -283,6 +313,7 @@ def build_source(
         cflags=cflags,
         keep_c=keep_c,
         numpy_ufunc=numpy_ufunc,
+        fp=fp,
         extra_c_sources=[("pp_exports", _export_wrapper_source([module]))],
     )
 
@@ -295,6 +326,7 @@ def build_file(
     cflags: list[str] | None = None,
     keep_c: bool = False,
     numpy_ufunc: bool = False,
+    fp: str = "strict",
     search_paths: list[Path] | None = None,
     ext_module: bool = False,
     module_name: Optional[str] = None,
@@ -324,6 +356,10 @@ def build_file(
     (spec §9.1 Package ABI v1). With ``emit_header=True`` /
     ``emit_manifest=True`` the C header and the JSON export manifest are
     written next to the output as ``<output>.h`` / ``<output>.json``.
+
+    *fp* selects the floating-point mode (spec §4.1.2): ``"strict"``
+    (default, IEEE 754 per-operation semantics) or ``"fast"`` (the
+    non-conforming fast-math opt-in).
     """
     path = resolve_build_entry(Path(path))
     modules, errors = compile_program(path, search_paths=search_paths)
@@ -352,6 +388,7 @@ def build_file(
             cc=cc,
             cflags=cflags,
             keep_c=keep_c,
+            fp=fp,
             extra_c_sources=[("pp_exports", wrapper_source)],
         )
     else:
@@ -365,6 +402,7 @@ def build_file(
             cflags=cflags,
             keep_c=keep_c,
             numpy_ufunc=numpy_ufunc,
+            fp=fp,
             extra_c_sources=[("pp_exports", wrapper_source)],
         )
 

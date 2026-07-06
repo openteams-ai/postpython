@@ -1,6 +1,6 @@
 # POST Python Language Specification
 
-**Version:** 0.2 (draft)
+**Version:** 0.2.1 (draft)
 **Status:** Work in progress
 
 ---
@@ -121,7 +121,7 @@ Python built-in types map to POST Python types as follows:
 | `str`   | `Str`       |
 | `bytes` | `Bytes`     |
 
-A conforming compiler must respect IEEE 754 semantics for all floating-point operations.
+A conforming compiler must respect IEEE 754 semantics for all floating-point operations.  Section 4.1.2 specifies the required semantics, including `NaN`, infinities, signed zero, and the strict/fast-math build modes.
 
 ### 4.1.1 Numeric Semantics
 
@@ -131,11 +131,49 @@ Unless otherwise specified by a future profile:
 
 - Signed and unsigned integer arithmetic is performed at the declared width.
 - Debug builds must diagnose integer overflow where practical; release builds may use the target platform's native overflow behavior, but compilers must document whether they wrap, trap, or assume no overflow for optimization.
-- Floating-point operations follow IEEE 754 for the declared width.  Compilers must not enable transformations that violate required IEEE behavior unless the user explicitly enables a non-conforming fast-math mode.
-- `NaN`, infinities, and signed zero follow IEEE comparison and arithmetic behavior.
+- Floating-point operations follow IEEE 754 for the declared width, with the normative semantics of Section 4.1.2: strict mode is the default, and any behavior-changing relaxation (fast-math) requires an explicit user opt-in.
 - Integer division, floor division, and remainder must be specified by the POST Python arithmetic rules for the operand dtypes.  Until those rules are finalized, portable code should avoid relying on edge cases involving negative integer `//` and `%`.
 - Numeric casts must be explicit when they may lose precision, change signedness, or narrow width.  Debug builds should diagnose out-of-range narrowing casts where practical.
 - Scalar promotion rules are part of the type system and must be consistent across scalar expressions, array expressions, and vectorized kernels.
+
+### 4.1.2 Floating-Point Semantics
+
+This section is normative.  It defines the floating-point behavior required of compiled POST Python code.  Interpreted mode inherits CPython's IEEE 754 double semantics for `float` and satisfies these requirements at width 64.
+
+A conforming compiler must provide two floating-point modes:
+
+- **Strict mode** — the default.  The semantics below are guaranteed.
+- **Fast-math mode** — an explicit, per-build user opt-in that permits documented, value-changing relaxations.  Fast-math builds are **non-conforming** with respect to this section.
+
+#### Strict mode (default)
+
+**Operations and rounding.**  Addition, subtraction, multiplication, division, and square root are the IEEE 754 operations for the declared width, correctly rounded in the default rounding mode (round-to-nearest, ties-to-even).  Each source-level operation is evaluated at the declared width:
+
+- No reassociation or redistribution of floating-point expressions (`(a + b) + c` must not become `a + (b + c)`).
+- No contraction of `a * b + c` into a fused multiply-add.  FMA may only be introduced where the source requests it explicitly (e.g. a future `fma` intrinsic).
+- No excess precision: intermediate results must not be kept at a wider format than the declared width in a way that changes observable results.
+- Compilers must not apply identities that are invalid for special values, e.g. `x + 0.0 → x` (wrong for `x = -0.0`), `x * 0.0 → 0.0` (wrong for `NaN`, infinities, and `-0.0`), or `x - x → 0.0` (wrong for `NaN` and infinities).
+
+**NaN.**  `NaN` operands propagate: an arithmetic operation with a `NaN` operand produces `NaN`.  Ordered comparisons (`<`, `<=`, `>`, `>=`) and equality (`==`) involving `NaN` evaluate to `False`; inequality (`!=`) evaluates to `True`.  In particular `x != x` is `True` exactly when `x` is `NaN`, and a compiler must preserve it (and `x == x`) as a NaN test rather than folding it to a constant.  `postpyc.math.isnan` must agree with `x != x`.  NaN sign and payload bits are unspecified; compilers and libraries are not required to propagate payloads.
+
+**Infinities.**  Infinities are ordinary values: overflow rounds to the appropriately signed infinity, division of a finite nonzero value by zero yields the appropriately signed infinity, and the indeterminate forms (`inf - inf`, `0 * inf`, `inf / inf`, `0/0`) yield `NaN`.  Comparisons order infinities as the IEEE extended real line (`-inf <` every finite value `< inf`).  Floating-point literals and constants may be non-finite (`postpyc.math.INF`, `NAN`); compilers must accept and preserve them.
+
+**Signed zero.**  Positive and negative zero compare equal (`0.0 == -0.0` is `True`) but are distinct values whose sign must be honored where IEEE 754 requires it: `1.0 / -0.0` is `-inf`, `copysign(1.0, -0.0)` is `-1.0`, and the sign of a zero result follows the IEEE sign rules for the producing operation.  Compilers must not rewrite `-0.0` to `0.0` or drop sign-of-zero distinctions during optimization.
+
+**Floating-point environment.**  Code is compiled for the default IEEE environment: round-to-nearest ties-to-even, no trapping exceptions enabled.  POST Python provides no mechanism to read or modify rounding modes or exception flags; status flags raised by compiled code are unobservable and may be optimized away.  Compiled artifacts must not alter the floating-point environment of the process that loads them (no flush-to-zero / denormals-are-zero mode set at load time).  Subnormal values are supported and must not be flushed to zero in strict mode.
+
+**libm dependence.**  Transcendental and special functions (`postpyc.math`, Section 10) lower to the platform C math library.  Their accuracy and their edge-value behavior are quality-of-implementation properties of that library, so results may differ across platforms within the accuracy documented by the platform's libm (C standard Annex F where implemented).  Bit-for-bit reproducibility across platforms is therefore guaranteed only for the correctly rounded operations above (`+`, `-`, `*`, `/`, `sqrt`) — not for libm-lowered calls.  Libraries requiring reproducible special-function results must ship their own POST Python implementations rather than relying on libm.
+
+#### Fast-math mode (opt-in)
+
+A compiler may offer a fast-math mode that relaxes strict-mode guarantees (reassociation, FMA contraction, finite-math assumptions, flush-to-zero) provided all of the following hold:
+
+- It is **off by default** and enabled only by an explicit per-build user request (a compiler flag or build-API argument), never implicitly — not by an optimization level, not by an environment variable, and not transitively by a dependency's build configuration.
+- The compiler documents which relaxations the mode applies.
+- Under fast-math the strict-mode guarantees for `NaN`, infinities, signed zero, and subnormals become unspecified; programs that depend on them are not portable to fast-math builds.
+- The mode's effect is limited to the code generation of the requested translation units.  It must not change the floating-point environment of the host process (see above), and it must not relax the semantics of other, strictly compiled artifacts loaded in the same process.
+
+The reference implementation exposes the mode as `post-py build --fp {strict,fast}` (default `strict`) and as the `fp` argument of `postpyc.build.build_file` / `build_source`.  Strict mode compiles with FMA contraction disabled (`-ffp-contract=off`); fast mode compiles with `-ffast-math`.  Both apply at compilation only, so no fast-math startup object is linked into the artifact and the loading process's floating-point environment is never modified.
 
 ### 4.2 Array Type
 
@@ -627,6 +665,7 @@ The reference compiler emits C99 as its intermediate output, then invokes the sy
 | Single-writer assertions   | yes          | no              |
 | `assert` statements        | yes          | elided          |
 | Numeric overflow checks    | yes          | no              |
+| Strict IEEE 754 floating point (§4.1.2) | yes | yes — fast-math is a separate explicit opt-in, never implied by release mode |
 
 ---
 
@@ -706,5 +745,6 @@ Assigned module and linking codes (Section 9.1):
 
 | Version | Date       | Notes                       |
 |---------|------------|-----------------------------|
+| 0.2.1   | 2026-07-06 | Normative floating-point semantics (§4.1.2): NaN, infinities, signed zero, libm dependence, strict-by-default / fast-math opt-in modes |
 | 0.2     | 2026-05-02 | Modular conformance profiles, native dataframe runtime guidance, and expanded array layout semantics |
 | 0.1     | 2026-04-30 | Initial draft                |

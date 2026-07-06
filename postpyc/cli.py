@@ -57,6 +57,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
         cc=args.cc,
         cflags=args.cflags,
         keep_c=args.keep_c,
+        fp=args.fp,
         search_paths=[Path(p) for p in args.search_path] or None,
     )
 
@@ -141,6 +142,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                        help="write the JSON export manifest next to the output")
     build.add_argument("--search-path", action="append", default=[],
                        metavar="DIR", help="additional POST module source root")
+    build.add_argument(
+        "--fp", choices=["strict", "fast"], default="strict",
+        help="floating-point mode (spec §4.1.2): strict IEEE 754 semantics "
+             "(default) or the non-conforming fast-math opt-in",
+    )
     build.add_argument("--cc", default="cc", help="C compiler (default: cc)")
     build.add_argument("--cflags", nargs="*", default=None,
                        help="extra flags for compile and link")

@@ -139,6 +139,15 @@ def _emit_const_value(v: object) -> str:
     if isinstance(v, complex):
         return f"({_emit_const_value(v.real)} + {_emit_const_value(v.imag)} * _Complex_I)"
     if isinstance(v, float):
+        # repr() spells non-finite values `inf` / `nan`, which are not C;
+        # use the <math.h> macros (spec §4.1.2: infinities and NaN are
+        # ordinary values).
+        if v != v:
+            return "NAN"
+        if v == float("inf"):
+            return "INFINITY"
+        if v == float("-inf"):
+            return "-INFINITY"
         return repr(v)
     return str(v)
 
