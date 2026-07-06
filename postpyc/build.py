@@ -55,14 +55,20 @@ def _export_wrapper_source(modules: list[Module]) -> str:
 _SO_SUFFIX = ".dylib" if platform.system() == "Darwin" else ".so"
 _DEFAULT_CC = "cc"
 _COMPILE_FLAGS = ["-O2", "-fPIC"]
-_LINK_FLAGS = ["-shared", "-lm"]
+_LINK_FLAGS = ["-shared"]
 # Extension modules resolve CPython symbols at import time; on macOS that
 # requires a bundle with dynamic lookup instead of a plain dylib.
 _EXT_LINK_FLAGS = (
-    ["-bundle", "-undefined", "dynamic_lookup", "-lm"]
+    ["-bundle", "-undefined", "dynamic_lookup"]
     if platform.system() == "Darwin"
-    else ["-shared", "-lm"]
+    else ["-shared"]
 )
+# Libraries must come after the object files that need them: toolchains
+# that default to -Wl,--as-needed (Debian/Ubuntu) discard a -lm that
+# precedes the objects, leaving the artifact without a libm DT_NEEDED —
+# it then dlopens fine from Python (CPython already maps libm) but fails
+# to link a standalone C consumer.
+_LINK_LIBS = ["-lm"]
 
 
 def _ext_suffix() -> str:
@@ -160,7 +166,7 @@ def _link_modules(
             _run([cc, *extra_flags, *_COMPILE_FLAGS, "-c", str(c_path), "-o", str(obj_path)])
             objects.append(obj_path)
 
-        _run([cc, *extra_flags, *_LINK_FLAGS, "-o", str(output), *map(str, objects)])
+        _run([cc, *extra_flags, *_LINK_FLAGS, "-o", str(output), *map(str, objects), *_LINK_LIBS])
     finally:
         if not keep_c:
             for p in (*c_paths, *objects):
@@ -220,7 +226,7 @@ def _build_extension(
         ])
         objects.append(shim_obj)
 
-        _run([cc, *extra_flags, *_EXT_LINK_FLAGS, "-o", str(output), *map(str, objects)])
+        _run([cc, *extra_flags, *_EXT_LINK_FLAGS, "-o", str(output), *map(str, objects), *_LINK_LIBS])
     finally:
         if not keep_c:
             for p in (*c_paths, *objects):

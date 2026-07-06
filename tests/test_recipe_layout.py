@@ -185,6 +185,27 @@ def test_ext_module_output_imports_and_matches(tmp_path):
         sys.modules.pop("ppdemo._kernels", None)
 
 
+@needs_cc
+def test_link_command_places_libm_after_objects(tmp_path, monkeypatch):
+    # Toolchains defaulting to -Wl,--as-needed (Debian/Ubuntu) drop a -lm
+    # that precedes the object files, shipping a library with no libm
+    # DT_NEEDED: it dlopens from Python (CPython maps libm already) but a
+    # standalone C consumer fails to link against it.
+    import postpyc.build as build_mod
+    commands = []
+    real_run = build_mod._run
+    monkeypatch.setattr(
+        build_mod, "_run", lambda cmd: (commands.append(cmd), real_run(cmd))[1]
+    )
+    prefix = tmp_path / "prefix"
+    assert main([*LIB_BUILD_ARGS, str(prefix)]) == 0
+    link_cmds = [c for c in commands if "-c" not in c]
+    assert link_cmds
+    for cmd in link_cmds:
+        last_object = max(i for i, arg in enumerate(cmd) if arg.endswith(".o"))
+        assert cmd.index("-lm") > last_object
+
+
 # ---------------------------------------------------------------------------
 # The recipe file itself
 # ---------------------------------------------------------------------------
