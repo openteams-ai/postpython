@@ -11,3 +11,5 @@ build/
 .claude/
 # Pixi: the env dir is local; pixi.lock is committed for reproducibility.
 .pixi/
+# MkDocs build output
+site/

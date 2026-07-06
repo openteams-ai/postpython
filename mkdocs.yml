@@ -1,0 +1,57 @@
+site_name: POST Python
+site_description: >-
+  Performance Optimized Statically Typed Python — a compilable subset of
+  Python with a normative specification and a reference AOT compiler.
+site_url: https://post-py.org/
+repo_url: https://github.com/openteams-ai/postpython
+repo_name: openteams-ai/postpython
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - content.code.copy
+    - search.suggest
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.snippets:
+      base_path: [".", "docs"]
+      check_paths: true
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Specification: spec.md
+  - Toolchain & C ABI: toolchain.md
+  - Distribution Policy: distribution.md
+  - PostSciPy Roadmap: postscipy.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/openteams-ai/postpython

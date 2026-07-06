@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/openteams-ai/postpython/actions/workflows/ci.yml/badge.svg)](https://github.com/openteams-ai/postpython/actions/workflows/ci.yml)
 
+**Website:** <https://post-py.org/>
+
 PostPython is an early reference project for **POST Python**: Performance
 Optimized Statically Typed Python.
 
