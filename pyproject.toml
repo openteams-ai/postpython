@@ -30,6 +30,7 @@ dependencies = []
 numpy = ["numpy"]
 narwhals = ["narwhals"]
 dev = ["pytest>=7", "numpy", "narwhals"]
+docs = ["mkdocs-material"]
 
 [project.scripts]
 postpython = "postpython.cli:main"
@@ -77,6 +78,9 @@ python = ">=3.10"
 # A C compiler is required to build POST Python sources to native code.
 c-compiler = "*"
 
+[tool.pixi.feature.docs.pypi-dependencies]
+mkdocs-material = "*"
+
 [tool.pixi.feature.dev.dependencies]
 pytest = ">=7"
 numpy = "*"
@@ -85,8 +89,11 @@ narwhals = "*"
 [tool.pixi.environments]
 default = { solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
+docs = { features = ["docs"], solve-group = "default" }
 
 [tool.pixi.tasks]
 test = { cmd = "pytest tests/", description = "Run the test suite." }
 check = { cmd = "postpython-check", description = "Run the POST Python structural checker." }
 build-example = { cmd = "python examples/build_shared_lib.py", description = "Build the example shared library." }
+docs-serve = { cmd = "mkdocs serve", description = "Serve the website locally with live reload." }
+docs-build = { cmd = "mkdocs build --strict", description = "Build the website into site/." }
