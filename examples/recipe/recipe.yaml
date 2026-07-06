@@ -1,0 +1,84 @@
+# Reference rattler-build recipe for a POST Python package
+# (docs/distribution.md, issue #14).
+#
+# Builds the split-package pair every pp* package ships as:
+#
+#   libppdemo — the compiled shared library with the stable pp_* C ABI,
+#               its C header, and the machine-readable export manifest.
+#               A real system library: consumable from C, C++, Rust,
+#               Zig, Julia, R, or ctypes without Python installed.
+#   ppdemo    — the pure Python source package plus the NumPy ufunc
+#               extension module, for Python users.
+#
+# One solver-visible copy of the native library per environment; no
+# binary wheels anywhere. tests/test_recipe_layout.py runs these build
+# commands end to end against the source tree, so the recipe's contract
+# with `post-py build` is exercised by CI.
+#
+# Unix only (linux-*, osx-*): the reference toolchain drives `cc`.
+
+context:
+  name: ppdemo
+  version: "0.1.0"
+
+recipe:
+  name: ppdemo-split
+  version: ${{ version }}
+
+source:
+  # The directory containing the ppdemo/ POST package sources. Real pp*
+  # packages use their release tarball (url + sha256) here.
+  path: ..
+
+build:
+  number: 0
+
+outputs:
+  # ── Tier-2 native library: lib/, include/, share/post-py/ ─────────────
+  - package:
+      name: libppdemo
+    requirements:
+      build:
+        - postpyc
+        - ${{ compiler('c') }}
+    build:
+      script: post-py build ppdemo/__init__.py --prefix $PREFIX
+    tests:
+      - script:
+          - test -f $PREFIX/lib/libppdemo${SHLIB_EXT}
+          - test -f $PREFIX/include/ppdemo.h
+          - test -f $PREFIX/share/post-py/ppdemo.json
+
+  # ── Python package: pure source + NumPy ufunc extension ───────────────
+  - package:
+      name: ppdemo
+    requirements:
+      build:
+        - postpyc
+        - ${{ compiler('c') }}
+        - python
+        - numpy
+      run:
+        - python
+        - numpy
+        # Interpreted mode is the package (spec §1.1): the pure sources
+        # import postyp/postpyc at runtime.
+        - postpyc
+    build:
+      script: |
+        post-py build ppdemo/__init__.py --ext-module \
+            --module-name ppdemo_native --output $SP_DIR/ppdemo_native.so
+        # ppdemo is a bare example package; real pp* packages install
+        # their pure sources with `python -m pip install . --no-deps`.
+        cp -r ppdemo $SP_DIR/ppdemo
+    tests:
+      - python:
+          imports:
+            - ppdemo
+            - ppdemo_native
+
+about:
+  summary: Reference split-package build for POST Python compiled outputs
+  license: BSD-3-Clause
+  homepage: https://github.com/openteams-ai/postpython
+  documentation: https://github.com/openteams-ai/postpython/blob/main/docs/distribution.md

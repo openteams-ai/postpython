@@ -78,27 +78,35 @@ The NumPy extension module (`post-py build --ext-module`) is built by
 the `pp<name>` recipe and installed into the environment's
 `site-packages` like any extension; it links the same translation units.
 
-### Recipe sketch (rattler-build)
+### Reference recipe (rattler-build)
+
+`examples/recipe/recipe.yaml` is the reference recipe: a complete
+rattler-build recipe that builds `examples/ppdemo` as the
+`libppdemo` + `ppdemo` split above. Its build commands are exercised
+end to end by `tests/test_recipe_layout.py` — the prefix layout, the
+manifest as the symbol-lookup contract, a compiled C consumer of the
+installed header and library, and the NumPy extension module — so the
+recipe's contract with `post-py build` is covered by CI. Start a
+pp* package's recipe by copying it and swapping the names and the
+`source:` section:
 
 ```yaml
-recipe:
-  name: ppspecial-split
 outputs:
   - package:
-      name: libppspecial
+      name: libppdemo
     requirements:
-      build: [postpyc, c-compiler]
+      build: [postpyc, "${{ compiler('c') }}"]
     build:
-      script: post-py build ppspecial/__init__.py --prefix $PREFIX
+      script: post-py build ppdemo/__init__.py --prefix $PREFIX
   - package:
-      name: ppspecial
+      name: ppdemo
     requirements:
-      build: [postpyc, c-compiler, python, numpy]
-      run: [python, numpy]
+      build: [postpyc, "${{ compiler('c') }}", python, numpy]
+      run: [python, numpy, postpyc]
     build:
       script: |
-        post-py build ppspecial/__init__.py --ext-module \
-            --module-name ppspecial_native --output $SP_DIR/ppspecial_native.so
+        post-py build ppdemo/__init__.py --ext-module \
+            --module-name ppdemo_native --output $SP_DIR/ppdemo_native.so
         python -m pip install . --no-deps
 ```
 
