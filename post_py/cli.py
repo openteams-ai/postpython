@@ -108,7 +108,6 @@ def _cmd_build(args: argparse.Namespace) -> int:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="post-py",
         description="POST Python reference compiler toolchain.",
     )
     sub = parser.add_subparsers(dest="command", required=True)

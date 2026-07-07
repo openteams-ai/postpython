@@ -15,7 +15,7 @@ pixi run -e dev test        # 360 tests, including end-to-end native builds
 With pip (bring your own `cc`):
 
 ```bash
-python -m pip install post-py        # from PyPI
+python -m pip install postpyc       # from PyPI
 ```
 
 or from a checkout:
@@ -25,7 +25,7 @@ python -m pip install ./postyp-dist -e ".[dev]"
 pytest
 ```
 
-(The PyPI distribution is named `post-py`; the import names are the
+(The PyPI distribution is named `postpyc`; the import names are the
 standard's `post_py` and `postyp`.)
 
 Both paths install the `post_py` package, the `postyp` type

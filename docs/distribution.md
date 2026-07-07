@@ -13,7 +13,7 @@ package manager that treats native code as a first-class dependency —
 pixi/conda, nix, spack — where each package ships as a real system
 library plus a Python binding. Building locally is always legitimate
 too: anyone with a functional POST-compatible compiler chain (a
-conforming POST compiler such as the reference `post-py`, plus a C
+conforming POST compiler such as the reference `postpyc`, plus a C
 toolchain) can compile the pure package they installed — explicitly,
 never behind their back. Package documentation points to the
 environment managers by default.
@@ -87,13 +87,13 @@ outputs:
   - package:
       name: libppspecial
     requirements:
-      build: [post-py, c-compiler]
+      build: [postpyc, c-compiler]
     build:
       script: post-py build ppspecial/__init__.py --prefix $PREFIX
   - package:
       name: ppspecial
     requirements:
-      build: [post-py, c-compiler, python, numpy]
+      build: [postpyc, c-compiler, python, numpy]
       run: [python, numpy]
     build:
       script: |
@@ -117,7 +117,7 @@ managers above, or at explicit local compilation below.
 Building locally is always a supported path — from a source checkout
 *or* from the pure package installed off PyPI, whose `.py` files are
 the POST sources. It requires a functional POST-compatible compiler
-chain: a conforming POST compiler (today, the reference `post-py`)
+chain: a conforming POST compiler (today, the reference `postpyc`)
 and a C toolchain.
 
 From a checkout:

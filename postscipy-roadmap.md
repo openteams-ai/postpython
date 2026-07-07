@@ -88,7 +88,7 @@ These mirror ppspecial's roadmap and keep the ecosystem coherent:
 5. **Follow the ppspecial layout.** `pp<name>/` package, `tests/`,
    `scripts/build_native.py` and `scripts/build_ext.py`, a pixi workspace
    in `pyproject.toml` with `test` / `build-native` / `build-ext` tasks,
-   a git dependency on post-py, and a `ROADMAP.md` tracking targets
+   a git dependency on postpyc, and a `ROADMAP.md` tracking targets
    and upstream requests.
 6. **Accuracy is a deliverable.** Document per-function accuracy targets
    and reference sources; validate against published values.

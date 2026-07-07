@@ -1,11 +1,12 @@
-# POST Python
+# postpyc — the POST Python Compiler
 
 [![CI](https://github.com/openteams-ai/postpython/actions/workflows/ci.yml/badge.svg)](https://github.com/openteams-ai/postpython/actions/workflows/ci.yml)
 
 **Website:** <https://post-py.org/>
 
-POST Python is an early reference project for **POST Python**: Performance
-Optimized Statically Typed Python.
+This repository is **postpyc**, the POST Python Compiler — the reference
+implementation of the **POST Python** standard (Performance Optimized
+Statically Typed Python) — together with the standard's specification.
 
 The goal is to define a clear, portable subset of Python that can be compiled
 ahead of time to native code, in the spirit of tools like Numba, Cython, Codon,
@@ -103,12 +104,12 @@ under pip you need a system compiler.
 ### With pip
 
 ```bash
-python -m pip install post-py
+python -m pip install postpyc
 ```
 
-The distribution is named `post-py` (the `postpython` and `postpy` names
-on PyPI belong to unrelated projects). The standard's import names are
-`post_py` and `postyp`. The type vocabulary
+The distribution is named `postpyc` (`postpython` and `postpy` on PyPI
+belong to unrelated projects, and PyPI's name-similarity rule blocks
+`post-py`). The standard's import names are `post_py` and `postyp`. The type vocabulary
 is published separately as [`postyp`](https://pypi.org/project/postyp/)
 and installed automatically as a dependency.
 

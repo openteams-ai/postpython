@@ -1,6 +1,6 @@
 name: Release
 
-# Publishes `postyp` and `post-py` to PyPI via Trusted Publishing (OIDC —
+# Publishes `postyp` and `postpyc` to PyPI via Trusted Publishing (OIDC —
 # no long-lived tokens). Prerequisite: both project names configured on
 # PyPI with this repo/workflow as a (pending) trusted publisher, using
 # environment name `pypi`.
@@ -23,7 +23,7 @@ jobs:
       - run: python -m pip install build
       - name: Build postyp
         run: python -m build --outdir dist-postyp postyp-dist
-      - name: Build post-py
+      - name: Build postpyc
         run: python -m build --outdir dist-postpy .
       - uses: actions/upload-artifact@v4
         with:
@@ -47,8 +47,8 @@ jobs:
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
 
-  publish-post-py:
-    needs: publish-postyp   # postyp first: post-py depends on it
+  publish-postpyc:
+    needs: publish-postyp   # postyp first: postpyc depends on it
     runs-on: ubuntu-latest
     environment: pypi
     permissions:

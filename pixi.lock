@@ -3343,9 +3343,9 @@ packages:
   size: 25877
   timestamp: 1764896838868
 - pypi: ./
-  name: post-py
+  name: postpyc
   version: 0.2.0
-  sha256: 9110fca7e9a8837a7ec9506a2dbeb7f608cbc86f7130c58ffd5af28745ba9e4f
+  sha256: 732d2bce25bd63003fba6be61de5ae8197fd4fd8e485c4a208cc9dbccbf0b2cb
   requires_dist:
   - postyp>=0.2.0
   - numpy ; extra == 'numpy'

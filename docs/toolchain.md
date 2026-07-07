@@ -7,6 +7,9 @@ post-py check FILE...          structural subset checking
 post-py build FILE [options]   compile to native artifacts
 ```
 
+(`postpyc` is an equivalent alias for the same command, matching the
+distribution name.)
+
 Build options:
 
 | Option | Effect |
