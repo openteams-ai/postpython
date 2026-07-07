@@ -2,7 +2,7 @@
 requires = ["hatchling>=1.18"]
 build-backend = "hatchling.build"
 
-# The Post-Py type vocabulary as its own distribution. The spec (§10,
+# The POST Python type vocabulary as its own distribution. The spec (§10,
 # §12) treats `postyp` as the canonical, compiler-independent source of
 # type metadata: multiple conforming compilers introspect it rather than
 # duplicating dtype definitions. The module source lives in this
@@ -11,7 +11,7 @@ build-backend = "hatchling.build"
 [project]
 name = "postyp"
 version = "0.2.0"
-description = "Post-Py type vocabulary: scalar dtypes, Array, Shape, layouts, DataFrame and Series annotations."
+description = "POST Python type vocabulary: scalar dtypes, Array, Shape, layouts, DataFrame and Series annotations."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Travis E. Oliphant" }]

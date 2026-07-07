@@ -1,4 +1,4 @@
-"""Example: dot product as a Post-Py @guvectorize kernel.
+"""Example: dot product as a POST Python @guvectorize kernel.
 
 Signature: (n),(n)->()
 

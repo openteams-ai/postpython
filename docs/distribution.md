@@ -1,8 +1,8 @@
-# Distributing Post-Py Packages
+# Distributing POST Python Packages
 
-How compiled Post-Py libraries (the `pp*` family) reach users. This
+How compiled POST Python libraries (the `pp*` family) reach users. This
 guide is policy for packages under the PostSciPy effort and a reference
-for anyone shipping Post-Py code.
+for anyone shipping POST Python code.
 
 ## The policy, in one paragraph
 
@@ -26,7 +26,7 @@ forces vendoring — private copies of native libraries grafted into every
 wheel — which yields N incoherent copies of the same library per
 environment and no solver that understands any of them.
 
-Post-Py removes the premise:
+POST Python removes the premise:
 
 1. **The interpreted fallback is total.** A POST package is valid Python
    by design contract (spec §1.1). A pure wheel is not a degraded

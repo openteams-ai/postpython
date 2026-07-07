@@ -33,7 +33,7 @@ vocabulary, and the `post-py` CLI.
 
 ## Write a kernel
 
-Post-Py is ordinary Python with complete type annotations at function
+POST Python is ordinary Python with complete type annotations at function
 boundaries (the checker enforces this):
 
 ```python
@@ -140,4 +140,4 @@ system (§4), the permitted subset (§5), the memory model (§7),
 vectorized functions (§8), and the compilation model (§9). For a large
 worked example, read
 [ppspecial](https://github.com/openteams-ai/ppspecial) — 26 special
-functions written entirely in Post-Py.
+functions written entirely in POST Python.

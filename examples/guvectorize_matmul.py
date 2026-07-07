@@ -1,4 +1,4 @@
-"""Example: matrix multiply as a Post-Py @guvectorize kernel.
+"""Example: matrix multiply as a POST Python @guvectorize kernel.
 
 Signature: (m,k),(k,n)->(m,n)
 

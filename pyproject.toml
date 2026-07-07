@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 [project]
 name = "post-py"
 version = "0.2.0"
-description = "Post-Py reference compiler and toolchain (import name: post_py)."
+description = "POST Python reference compiler and toolchain (import name: post_py)."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Travis E. Oliphant" }]
@@ -72,7 +72,7 @@ postyp = { path = "postyp-dist" }
 
 [tool.pixi.dependencies]
 python = ">=3.10"
-# A C compiler is required to build Post-Py sources to native code.
+# A C compiler is required to build POST Python sources to native code.
 c-compiler = "*"
 
 [tool.pixi.feature.docs.pypi-dependencies]
@@ -90,7 +90,7 @@ docs = { features = ["docs"], solve-group = "default" }
 
 [tool.pixi.tasks]
 test = { cmd = "pytest tests/", description = "Run the test suite." }
-check = { cmd = "post-py check", description = "Run the Post-Py structural checker." }
+check = { cmd = "post-py check", description = "Run the POST Python structural checker." }
 build-example = { cmd = "python examples/build_shared_lib.py", description = "Build the example shared library." }
 docs-serve = { cmd = "mkdocs serve", description = "Serve the website locally with live reload." }
 docs-build = { cmd = "mkdocs build --strict", description = "Build the website into site/." }

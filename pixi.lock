@@ -3345,7 +3345,7 @@ packages:
 - pypi: ./
   name: post-py
   version: 0.2.0
-  sha256: d31ad2aa48e9f443845295118053f83ab2de2847a663a20af83e70e797e38598
+  sha256: 9110fca7e9a8837a7ec9506a2dbeb7f608cbc86f7130c58ffd5af28745ba9e4f
   requires_dist:
   - postyp>=0.2.0
   - numpy ; extra == 'numpy'
@@ -3358,7 +3358,7 @@ packages:
 - pypi: ./postyp-dist
   name: postyp
   version: 0.2.0
-  sha256: 893ca2a45ec30a2d6022677f95720fd831756e97857a9f74e97f209495d34f6b
+  sha256: 75cd5622fa5f0e2cbd6452ae08a94322911815de95752b50160372a1e15c6d55
   requires_python: '>=3.10'
 - conda: https://conda.anaconda.org/conda-forge/noarch/pygments-2.20.0-pyhd8ed1ab_0.conda
   sha256: cf70b2f5ad9ae472b71235e5c8a736c9316df3705746de419b59d442e8348e86

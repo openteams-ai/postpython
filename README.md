@@ -1,15 +1,15 @@
-# Post-Py
+# POST Python
 
 [![CI](https://github.com/openteams-ai/postpython/actions/workflows/ci.yml/badge.svg)](https://github.com/openteams-ai/postpython/actions/workflows/ci.yml)
 
 **Website:** <https://post-py.org/>
 
-Post-Py is an early reference project for **Post-Py**: Performance
+POST Python is an early reference project for **POST Python**: Performance
 Optimized Statically Typed Python.
 
 The goal is to define a clear, portable subset of Python that can be compiled
 ahead of time to native code, in the spirit of tools like Numba, Cython, Codon,
-Pythran, taichi-lang, and related compiled Python variants. A Post-Py source
+Pythran, taichi-lang, and related compiled Python variants. A POST Python source
 file is still valid Python, but the language subset, type vocabulary, array ABI,
 and vectorized kernel model are specified so multiple compiler implementations
 can target the same standard.
@@ -23,7 +23,7 @@ native packages for conda/pixi/nix) lives in
 
 This repository contains:
 
-- A draft language specification for Post-Py 0.2.
+- A draft language specification for POST Python 0.2.
 - A structural checker for the compilable Python subset.
 - A typed frontend that lowers Python AST into a small IR.
 - A C99 backend that emits native shared-library code.
@@ -35,18 +35,18 @@ This repository contains:
   and vectorized decorators.
 
 A companion library, [ppspecial](https://github.com/openteams-ai/ppspecial),
-reimplements `scipy.special` in pure Post-Py and serves as the standard's
+reimplements `scipy.special` in pure POST Python and serves as the standard's
 flagship real-world consumer. It is the first of a family of `pp*` packages
 rebuilding SciPy one subpackage at a time — the project's primary proving
 ground. See [postscipy-roadmap.md](postscipy-roadmap.md) for the package map,
 sequencing, and the compiler-capability matrix that work feeds.
 
-Post-Py is not production-ready. It is a reference implementation and design
+POST Python is not production-ready. It is a reference implementation and design
 vehicle for the standard.
 
 ## Language Sketch
 
-Post-Py code uses ordinary Python syntax with explicit type annotations:
+POST Python code uses ordinary Python syntax with explicit type annotations:
 
 ```python
 from post_py import vectorize
@@ -84,15 +84,15 @@ postyp-dist/postyp.py     Type vocabulary (published separately as `postyp`)
 post_py/checker.py     Structural subset checker
 post_py/compiler/      AST frontend, IR, and C backend
 post_py/ufunc.py       @vectorize and @guvectorize runtime wrappers
-post_py/build.py       Post-Py to C99 to shared-library build helper
+post_py/build.py       POST Python to C99 to shared-library build helper
 post_py/math.py        Typed scalar math wrappers
-examples/                 Example Post-Py source files
+examples/                 Example POST Python source files
 tests/                    Reference test suite
 ```
 
 ## Installation
 
-Post-Py ships as a regular Python package and can be installed with either
+POST Python ships as a regular Python package and can be installed with either
 `pip` or [pixi](https://pixi.sh/). Both paths install two importable units:
 the `post_py` package and the `postyp` type module.
 
@@ -135,7 +135,7 @@ pytest
 
 `pyproject.toml` contains a `[tool.pixi]` workspace. Pixi resolves
 conda-forge dependencies (Python, NumPy, narwhals, a C compiler) and installs
-Post-Py itself as an editable PyPI package, so any source changes are
+POST Python itself as an editable PyPI package, so any source changes are
 picked up immediately.
 
 ```bash
@@ -177,7 +177,7 @@ print(lib_path)
 
 ## Design Highlights
 
-- **Python syntax, static subset:** Post-Py files remain `.py` files, but
+- **Python syntax, static subset:** POST Python files remain `.py` files, but
   unsupported dynamic constructs are rejected by the checker or compiler.
 - **Typed native values:** scalar types such as `Float64`, `Int64`, and `Bool`
   are fixed-width native dtypes.
@@ -208,7 +208,7 @@ compiler behavior. Good contributions include:
 
 - Tightening the specification.
 - Adding conformance tests.
-- Improving diagnostics for unsupported-but-valid Post-Py features.
+- Improving diagnostics for unsupported-but-valid POST Python features.
 - Expanding array layout and ABI coverage.
 - Building out examples that stress native-code lowering.
 - Comparing behavior against existing compiled Python tools.

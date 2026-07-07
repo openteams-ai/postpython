@@ -4,7 +4,7 @@ These mirror NumPy's element-wise unary ufuncs such as np.square,
 np.sqrt, np.exp, np.log, np.abs, np.sign, np.ceil, np.floor.
 
 A @vectorize kernel takes a single scalar and returns a single scalar.  NumPy
-(or the Post-Py runtime) handles broadcasting over any array shape
+(or the POST Python runtime) handles broadcasting over any array shape
 automatically; the author only writes the scalar kernel.
 
 Contrast with the generalized kernels in the dot/norm examples.
@@ -113,7 +113,7 @@ def pp_exp_approx(x: Float64) -> Float64:
     """Minimax polynomial approximation of e^x valid for |x| ≤ 1.
 
     In a real compiler this would lower to the libm exp() call; this
-    version is self-contained Post-Py to illustrate the kernel shape.
+    version is self-contained POST Python to illustrate the kernel shape.
     """
     # Clamp to a sane range to avoid overflow.
     xc: Float64 = x

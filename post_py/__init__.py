@@ -1,4 +1,4 @@
-"""Post-Py — Performance Optimized Statically Typed Python."""
+"""POST Python — Performance Optimized Statically Typed Python."""
 
 # Make the repo root importable so submodules can `from postyp import ...`.
 # Done once here, before any submodules are imported.

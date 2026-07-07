@@ -1,4 +1,4 @@
-"""Post-Py vectorized-function decorators.
+"""POST Python vectorized-function decorators.
 
 The public decorators intentionally follow Numba's naming:
 
@@ -8,7 +8,7 @@ The public decorators intentionally follow Numba's naming:
 
 At runtime (interpreted mode) the decorators wrap the function in a Python
 broadcast loop so it remains callable and testable without the AOT compiler.
-When the Post-Py compiler processes the source file it recognises the
+When the POST Python compiler processes the source file it recognises the
 decorators and lowers them to the NumPy ufunc C ABI.
 
 Usage::
@@ -277,7 +277,7 @@ def _broadcast_call(fn: Callable, sig: UFuncSignature, args: tuple) -> Any:
 # ---------------------------------------------------------------------------
 
 class GUVectorizeWrapper:
-    """Wraps a Post-Py function decorated with @guvectorize.
+    """Wraps a POST Python function decorated with @guvectorize.
 
     Attributes
     ----------
@@ -359,7 +359,7 @@ def vectorize(*args: Any, **kwargs: Any) -> Callable[[Callable], VectorizeWrappe
     """Numba-compatible scalar ufunc decorator.
 
     The reference interpreter accepts Numba-style signature lists and options
-    for source compatibility, but uses Post-Py annotations as the
+    for source compatibility, but uses POST Python annotations as the
     normative type information.
     """
     if args and callable(args[0]) and len(args) == 1 and not kwargs:
@@ -380,7 +380,7 @@ def guvectorize(*args: Any, **kwargs: Any) -> Callable[[Callable], GUVectorizeWr
     Accepted forms include ``@guvectorize("(n)->(n)")`` and
     ``@guvectorize([signature_types], "(n)->(n)", target="cpu")``.
     Type signature objects are accepted for compatibility and stored for
-    introspection; Post-Py annotations remain the source of truth.
+    introspection; POST Python annotations remain the source of truth.
     """
     sig_str = _signature_from_args(args, kwargs)
     if sig_str is None:

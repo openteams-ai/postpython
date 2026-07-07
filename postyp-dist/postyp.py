@@ -1,7 +1,7 @@
-"""postyp — Post-Py type library.
+"""postyp — POST Python type library.
 
 Defines the scalar, array, and dataframe types that form the type
-vocabulary of Post-Py source files.  Import from here in any POST
+vocabulary of POST Python source files.  Import from here in any POST
 Python module:
 
     from postyp import Float64, Array, DataFrame, Shape
@@ -9,7 +9,7 @@ Python module:
 Design notes
 ------------
 * Scalar dtypes mirror the array-api standard (data-apis.org) so that
-  Post-Py's numeric tower is compatible with NumPy, CuPy, JAX, etc.
+  POST Python's numeric tower is compatible with NumPy, CuPy, JAX, etc.
 * Array[DType] / Array[DType, Shape(...)] is the compile-time array type.
   Layout qualifiers such as COrder, FOrder, and Strides describe native
   memory layouts for compiled code.
@@ -37,7 +37,7 @@ _MISSING = object()
 # ---------------------------------------------------------------------------
 
 class DType:
-    """Abstract base for all Post-Py dtypes.
+    """Abstract base for all POST Python dtypes.
 
     Subclasses represent concrete scalar types.  They are never
     instantiated — they are used as type parameters only.
@@ -120,7 +120,7 @@ class Complex128(DType, itemsize=16, kind='c', signed=True):
 class Str(DType, itemsize=0, kind='s', signed=False):
     """Variable-length UTF-8 string.
 
-    Note: in compiled Post-Py, string values are immutable and
+    Note: in compiled POST Python, string values are immutable and
     passed by reference.  itemsize=0 signals variable-width.
     """
 
@@ -215,7 +215,7 @@ AnyShape = Shape()
 # ---------------------------------------------------------------------------
 
 class ArrayLayout:
-    """Base class for Post-Py array layout descriptors."""
+    """Base class for POST Python array layout descriptors."""
 
 
 @dataclass(frozen=True)
@@ -279,7 +279,7 @@ DT = TypeVar("DT", bound=DType)
 
 
 class Array(Generic[DT]):
-    """Post-Py array type (array-api compatible).
+    """POST Python array type (array-api compatible).
 
     Use as a type annotation; never instantiate directly.
 
@@ -441,7 +441,7 @@ def postyp_dtype_to_narwhals(dtype: type[DType]) -> Any:
 
 
 class DataFrame:
-    """Post-Py DataFrame type annotation.
+    """POST Python DataFrame type annotation.
 
     Backend-agnostic logical dataframe type.  Interpreted compatibility mode
     can wrap narwhals dataframes; compiled mode lowers supported operations to
@@ -466,7 +466,7 @@ class DataFrame:
 
     @classmethod
     def from_narwhals(cls, nw_df: Any) -> "DataFrame":
-        """Wrap a narwhals DataFrame for use in Post-Py code."""
+        """Wrap a narwhals DataFrame for use in POST Python code."""
         if not _HAS_NARWHALS:
             raise ImportError("narwhals is not installed")
         obj = cls.__new__(cls)
@@ -480,7 +480,7 @@ class DataFrame:
 
 
 class LazyFrame:
-    """Post-Py LazyFrame type annotation (deferred computation).
+    """POST Python LazyFrame type annotation (deferred computation).
 
     Represents an optimizable logical dataframe plan.
     """
@@ -494,7 +494,7 @@ class LazyFrame:
 
 
 class Series:
-    """Post-Py Series type annotation — a single typed column.
+    """POST Python Series type annotation — a single typed column.
 
     Examples::
 

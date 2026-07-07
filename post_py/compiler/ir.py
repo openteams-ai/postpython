@@ -1,4 +1,4 @@
-"""Post-Py Intermediate Representation.
+"""POST Python Intermediate Representation.
 
 A typed, SSA-inspired three-address IR.  The design is intentionally
 simple: basic blocks, typed values, explicit control flow.  Later passes
@@ -167,7 +167,7 @@ class Select:
 
 @dataclass
 class Alloc:
-    """result = alloc(dtype, length)  — allocate an array on the Post-Py heap"""
+    """result = alloc(dtype, length)  — allocate an array on the POST Python heap"""
     result: Value
     length: Value             # number of elements
 
@@ -259,7 +259,7 @@ class Param:
 
 @dataclass
 class Function:
-    """A typed Post-Py function."""
+    """A typed POST Python function."""
     name: str
     params: list[Param]
     return_dtype: Optional[type[DType]]   # None → void
@@ -319,7 +319,7 @@ class ImportedName:
 
 @dataclass
 class Module:
-    """A Post-Py translation unit."""
+    """A POST Python translation unit."""
     name: str                               # typically the source filename stem
     functions: list[Function] = field(default_factory=list)
     # Names imported from other POST translation units, keyed by local name.

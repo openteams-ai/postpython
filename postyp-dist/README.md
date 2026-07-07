@@ -1,10 +1,10 @@
 # postyp
 
-The [Post-Py](https://post-py.org/) type vocabulary: scalar dtypes
+The [POST Python](https://post-py.org/) type vocabulary: scalar dtypes
 (`Float64`, `Int64`, `Bool`, …), `Array` with `Shape` and layout
 qualifiers, and `DataFrame`/`Series` annotations.
 
-`postyp` is the canonical, compiler-independent source of Post-Py
+`postyp` is the canonical, compiler-independent source of POST Python
 type metadata (spec §10). Conforming compilers introspect this module
 rather than duplicating dtype definitions; POST source files import
 their annotations from it:

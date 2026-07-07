@@ -1,4 +1,4 @@
-"""Post-Py command-line interface.
+"""POST Python command-line interface.
 
     post-py check FILE...          structural subset checking
     post-py build FILE [options]   compile to native artifacts
@@ -109,17 +109,17 @@ def _cmd_build(args: argparse.Namespace) -> int:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="post-py",
-        description="Post-Py reference compiler toolchain.",
+        description="POST Python reference compiler toolchain.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    check = sub.add_parser("check", help="check files against the Post-Py subset")
+    check = sub.add_parser("check", help="check files against the POST Python subset")
     check.add_argument("files", nargs="+", metavar="FILE")
     check.set_defaults(func=_cmd_check)
 
     build = sub.add_parser(
         "build",
-        help="compile a Post-Py file (and its POST imports) to native code",
+        help="compile a POST Python file (and its POST imports) to native code",
     )
     build.add_argument("file", metavar="FILE")
     build.add_argument("--output", "-o", help="output artifact path")

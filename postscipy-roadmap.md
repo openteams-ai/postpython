@@ -1,10 +1,10 @@
 # PostSciPy Roadmap
 
-Rebuilding SciPy, one subpackage at a time, in pure Post-Py is the
+Rebuilding SciPy, one subpackage at a time, in pure POST Python is the
 primary way this project tests and grows the reference compiler and the
 language specification. Each SciPy subpackage becomes its own `pp*`
 repository under [openteams-ai](https://github.com/openteams-ai), owned by
-its own agent or contributor, written as clean Post-Py with no
+its own agent or contributor, written as clean POST Python with no
 compiler-specific escape hatches.
 
 The flow runs in both directions:
@@ -71,10 +71,10 @@ The current capability matrix, by feature:
 
 These mirror ppspecial's roadmap and keep the ecosystem coherent:
 
-1. **Pure Post-Py.** Every kernel runs interpreted under CPython and
+1. **Pure POST Python.** Every kernel runs interpreted under CPython and
    compiles with the reference compiler. No compiler-specific escape
    hatches in library source.
-2. **Compiler gaps go upstream.** When valid Post-Py fails to compile
+2. **Compiler gaps go upstream.** When valid POST Python fails to compile
    or a needed construct is missing, file a postpython issue with a
    minimal reproducer instead of working around it silently. Reference
    the issue from the package's roadmap.

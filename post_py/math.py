@@ -1,10 +1,10 @@
-"""Post-Py math library — scalar libm wrappers.
+"""POST Python math library — scalar libm wrappers.
 
 These are plain typed scalar functions.  The compiler lowers each call to
 the corresponding libm symbol.  In interpreted mode they delegate
 to Python's math module.
 
-Numerical libraries built on Post-Py import from here rather than
+Numerical libraries built on POST Python import from here rather than
 calling math directly, so the compiler can intercept and inline the calls.
 """
 

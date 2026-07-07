@@ -1,10 +1,10 @@
-# Post-Py
+# POST Python
 
 **Performance Optimized Statically Typed Python** — a defined, compilable
 subset of Python with a normative specification and a reference
 ahead-of-time compiler.
 
-A Post-Py source file is valid Python. It runs unmodified under the
+A POST Python source file is valid Python. It runs unmodified under the
 standard CPython interpreter — and a conforming compiler translates the
 same file to native code with no Python runtime in the binary.
 
@@ -37,7 +37,7 @@ One code base. One artifact per audience. No vendored binaries.
 ## Why a standard, not just a compiler
 
 Python has many compilation projects — Cython, mypyc, Numba, Codon,
-Pythran, taichi — each defining its own informal subset. Post-Py
+Pythran, taichi — each defining its own informal subset. POST Python
 inverts that: the [specification](spec.md) is normative, organized into
 conformance profiles (POST Core, POST Array, POST Ufunc ABI, CPython
 Extension, …), and the compiler in this repository is a *reference
@@ -46,14 +46,14 @@ conformance for the profiles they support.
 
 The reference implementation follows one cardinal rule: **reject
 unsupported semantics clearly rather than accepting code and changing
-behavior.** Valid-but-unimplemented Post-Py produces an explicit
+behavior.** Valid-but-unimplemented POST Python produces an explicit
 diagnostic, never a silent rewrite.
 
 ## Proving ground: rebuilding SciPy
 
 The primary way the language and compiler grow is the
 [PostSciPy effort](postscipy.md) — recreating SciPy one subpackage at a
-time as pure Post-Py libraries
+time as pure POST Python libraries
 ([ppspecial](https://github.com/openteams-ai/ppspecial) for
 `scipy.special`, with thirteen more `pp*` packages scaffolded). Real
 numerical code discovers what the language is missing; those gaps become
@@ -66,7 +66,7 @@ into a single library and an importable NumPy extension.
 
 ## Status
 
-Post-Py is early and moving fast. Working today in the reference
+POST Python is early and moving fast. Working today in the reference
 implementation:
 
 | Area | State |

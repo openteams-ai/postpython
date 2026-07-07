@@ -1,4 +1,4 @@
-"""Post-Py frontend: Python AST → Post-Py IR.
+"""POST Python frontend: Python AST → POST Python IR.
 
 Pipeline:
   source text
@@ -290,7 +290,7 @@ class FunctionLifter:
         self._compiler_error(
             node,
             "PP900",
-            f"{feature} is valid Post-Py but is not lowered by this compiler yet",
+            f"{feature} is valid POST Python but is not lowered by this compiler yet",
         )
 
     def lift(self) -> Function:
@@ -968,7 +968,7 @@ class FunctionLifter:
         """Lower comparisons, including chains like ``a < b < c``.
 
         A chain ``a op0 b op1 c`` is lowered to ``(a op0 b) and (b op1 c)``,
-        evaluating each comparand exactly once. Post-Py expressions are
+        evaluating each comparand exactly once. POST Python expressions are
         side-effect free at the boundaries we lower, so non-short-circuit
         evaluation is observably equivalent.
         """
@@ -1660,7 +1660,7 @@ def compile_source(
     *,
     program: Optional[dict[str, Module]] = None,
 ) -> tuple[Module, list]:
-    """Parse and lower *source* to a Post-Py Module.
+    """Parse and lower *source* to a POST Python Module.
 
     Returns (module, errors) where errors is a list of Violation or
     type-error strings.  An empty error list means the translation
@@ -1704,7 +1704,7 @@ def compile_source(
         elif isinstance(node, ast.ClassDef):
             errors.append(TypeError_PP(
                 code="PP900",
-                message="class/dataclass definitions are valid Post-Py but are not lowered by this compiler yet",
+                message="class/dataclass definitions are valid POST Python but are not lowered by this compiler yet",
                 lineno=node.lineno,
                 col_offset=node.col_offset,
             ))

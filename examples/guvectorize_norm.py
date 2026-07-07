@@ -1,4 +1,4 @@
-"""Example: L2 norm as a Post-Py @guvectorize kernel.
+"""Example: L2 norm as a POST Python @guvectorize kernel.
 
 Signature: (n)->()
 
