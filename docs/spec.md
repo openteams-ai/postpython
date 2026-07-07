@@ -80,7 +80,7 @@ The prose specification is normative.  The reference checker, reference compiler
 - Encoding: UTF-8.
 - File extension: `.py` (same as Python; no new extension is introduced).
 - A POST Python file must be parseable by the CPython `ast` module with `type_comments=True`.
-- The first-party checker (`postpython-check`) is the normative structural checker for the reference implementation.  Full conformance also requires type, semantic, memory, and profile-specific validation.
+- The first-party checker (`post-py check`) is the normative structural checker for the reference implementation.  Full conformance also requires type, semantic, memory, and profile-specific validation.
 - Top-level executable statements are implementation-defined in v0.1 except for imports, type aliases, constant definitions, class definitions, and function definitions.  Portable POST Python packages should put executable logic behind typed functions.
 
 ---
@@ -428,12 +428,12 @@ POST Python adopts Numba's public decorator model for NumPy-compatible ufuncs:
 - `@vectorize` defines an element-wise scalar kernel.  The user function receives scalar values and returns one scalar value.  The compiler supplies the broadcast loop.
 - `@guvectorize` defines a generalized ufunc kernel.  The user function receives scalar values and/or core array views, and writes results through trailing output array parameters.
 
-The decorators may be imported from `postpython` or `postpython.ufunc`.
+The decorators may be imported from `postpyc` or `postpyc.ufunc`.
 
 Scalar element-wise example:
 
 ```python
-from postpython import vectorize
+from postpyc import vectorize
 from postyp import Float64
 
 @vectorize(["float64(float64, float64)"], target="cpu")
@@ -444,7 +444,7 @@ def add(x: Float64, y: Float64) -> Float64:
 Generalized ufunc example:
 
 ```python
-from postpython import guvectorize
+from postpyc import guvectorize
 from postyp import Array, Float64
 
 @guvectorize([], "(n),(n)->()")
@@ -631,9 +631,9 @@ The reference compiler emits C99 as its intermediate output, then invokes the sy
 POST Python's standard library consists of:
 
 1. **`postyp`** — the type vocabulary (scalar dtypes, `Array`, `DataFrame`, `Series`, `Shape`).
-2. **`postpython` / `postpython.ufunc`** — the `@vectorize` and `@guvectorize` decorators and signature utilities.
-3. **`postpython.math`** — scalar math functions (`sqrt`, `sin`, `cos`, `exp`, `log`, …), lowered to `libm`.
-4. **`postpython.mem`** — explicit memory utilities (`alloc`, `free`, `share`) for advanced use.
+2. **`postpyc` / `postpyc.ufunc`** — the `@vectorize` and `@guvectorize` decorators and signature utilities.
+3. **`postpyc.math`** — scalar math functions (`sqrt`, `sin`, `cos`, `exp`, `log`, …), lowered to `libm`.
+4. **`postpyc.mem`** — explicit memory utilities (`alloc`, `free`, `share`) for advanced use.
 
 The standard library does not include I/O, networking, or threading primitives; those are accessed through the CPython boundary.
 

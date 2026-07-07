@@ -13,13 +13,13 @@ import pytest
 
 np = pytest.importorskip("numpy")
 
-from postpython.build import build_file, BuildError
-from postpython.compiler.backend.ext_module import (
+from postpyc.build import build_file, BuildError
+from postpyc.compiler.backend.ext_module import (
     ExtModuleError,
     collect_registrations,
     emit_ext_module,
 )
-from postpython.compiler.frontend import compile_program
+from postpyc.compiler.frontend import compile_program
 
 cc = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
 needs_cc = pytest.mark.skipif(cc is None, reason="No C compiler available")
@@ -27,8 +27,8 @@ needs_cc = pytest.mark.skipif(cc is None, reason="No C compiler available")
 
 KERNELS = """\
 from postyp import Array, Float64
-from postpython import vectorize, guvectorize
-from postpython.math import exp
+from postpyc import vectorize, guvectorize
+from postpyc.math import exp
 
 @vectorize
 def sigmoid(x: Float64) -> Float64:
@@ -90,7 +90,7 @@ def test_shim_registers_vectorize_and_gufunc(tmp_path):
 def test_shim_mixed_dtype_types_array(tmp_path):
     (tmp_path / "k.py").write_text(
         "from postyp import Int64, Float64\n"
-        "from postpython import vectorize\n"
+        "from postpyc import vectorize\n"
         "@vectorize\n"
         "def scale(n: Int64, x: Float64) -> Float64:\n"
         "    return n * x\n"
@@ -115,7 +115,7 @@ def test_registrations_mirror_entry_namespace(tmp_path):
 def test_function_aliases_register_as_ufuncs(tmp_path):
     (tmp_path / "k.py").write_text(
         "from postyp import Float64\n"
-        "from postpython import vectorize\n"
+        "from postpyc import vectorize\n"
         "@vectorize\n"
         "def lgamma_like(x: Float64) -> Float64:\n"
         "    return x * 2.0\n"
@@ -130,7 +130,7 @@ def test_function_aliases_register_as_ufuncs(tmp_path):
 def test_private_ufuncs_are_not_registered(tmp_path):
     (tmp_path / "k.py").write_text(
         "from postyp import Float64\n"
-        "from postpython import vectorize\n"
+        "from postpyc import vectorize\n"
         "@vectorize\n"
         "def _internal(x: Float64) -> Float64:\n"
         "    return x\n"
@@ -212,7 +212,7 @@ def test_ext_module_reserved_names_use_post_kernels_not_libm(tmp_path):
         {
             "main.py": (
                 "from postyp import Float64\n"
-                "from postpython import vectorize\n"
+                "from postpyc import vectorize\n"
                 "@vectorize\n"
                 "def erf(x: Float64) -> Float64:\n"
                 "    return x + 41.5\n"
@@ -232,7 +232,7 @@ def test_ext_module_int_float_mixed_kernel(tmp_path):
         {
             "main.py": (
                 "from postyp import Int64, Float64\n"
-                "from postpython import vectorize\n"
+                "from postpyc import vectorize\n"
                 "@vectorize\n"
                 "def scale(n: Int64, x: Float64) -> Float64:\n"
                 "    return n * x\n"

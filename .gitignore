@@ -13,3 +13,5 @@ build/
 .pixi/
 # MkDocs build output
 site/
+# Local release artifacts
+release-dist/

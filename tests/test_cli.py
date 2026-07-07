@@ -1,4 +1,4 @@
-"""postpython CLI: check and build subcommands (docs/distribution.md)."""
+"""post-py CLI: check and build subcommands (docs/distribution.md)."""
 
 import ctypes
 import json
@@ -7,7 +7,7 @@ import shutil
 
 import pytest
 
-from postpython.cli import main
+from postpyc.cli import main
 
 cc = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
 needs_cc = pytest.mark.skipif(cc is None, reason="No C compiler available")
@@ -72,7 +72,7 @@ def test_build_prefix_layout(tmp_path, capsys):
 
     lib = prefix / "lib" / f"libppdemo{_LIB_SUFFIX}"
     header = prefix / "include" / "ppdemo.h"
-    manifest_path = prefix / "share" / "postpython" / "ppdemo.json"
+    manifest_path = prefix / "share" / "post-py" / "ppdemo.json"
     assert lib.exists() and header.exists() and manifest_path.exists()
 
     manifest = json.loads(manifest_path.read_text())

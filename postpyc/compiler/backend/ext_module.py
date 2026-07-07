@@ -21,8 +21,8 @@ from __future__ import annotations
 
 from ..ir import Module, UFunc
 
-# sys.path setup happens once in postpython/__init__.py.
-import postpython  # noqa: F401  -- ensure path setup runs
+# sys.path setup happens once in postpyc/__init__.py.
+import postpyc  # noqa: F401  -- ensure path setup runs
 from postyp import (
     DType,
     Bool, Int8, Int16, Int32, Int64,

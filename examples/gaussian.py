@@ -11,8 +11,8 @@ annotated, no reflection, no closures, no *args / **kwargs.
 """
 
 from postyp import Float64
-from postpython import vectorize
-from postpython.math import exp
+from postpyc import vectorize
+from postpyc.math import exp
 
 
 @vectorize

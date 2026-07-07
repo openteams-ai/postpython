@@ -2,8 +2,8 @@
 
 import pytest
 
-from postpython.compiler.frontend import compile_source
-from postpython.ufunc import guvectorize, parse_layout_signature
+from postpyc.compiler.frontend import compile_source
+from postpyc.ufunc import guvectorize, parse_layout_signature
 
 
 @pytest.mark.parametrize(
@@ -52,7 +52,7 @@ def test_guvectorize_decorator_rejects_invalid_signature():
 
 def test_compile_source_reports_invalid_guvectorize_signature():
     source = """\
-from postpython import guvectorize
+from postpyc import guvectorize
 from postyp import Float64
 
 @guvectorize([], "(n)->(m)")

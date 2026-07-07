@@ -13,7 +13,7 @@ package manager that treats native code as a first-class dependency —
 pixi/conda, nix, spack — where each package ships as a real system
 library plus a Python binding. Building locally is always legitimate
 too: anyone with a functional POST-compatible compiler chain (a
-conforming POST compiler such as the reference `postpython`, plus a C
+conforming POST compiler such as the reference `postpyc`, plus a C
 toolchain) can compile the pure package they installed — explicitly,
 never behind their back. Package documentation points to the
 environment managers by default.
@@ -65,16 +65,16 @@ pixi add ppspecial      # or: conda install ppspecial
 
 ### Install layout
 
-`postpython build --prefix $PREFIX` produces the `libpp<name>` piece in
+`post-py build --prefix $PREFIX` produces the `libpp<name>` piece in
 the conventional layout recipes expect:
 
 ```
 $PREFIX/lib/lib<artifact>.so          (.dylib on macOS)
 $PREFIX/include/<artifact>.h          stable C ABI declarations
-$PREFIX/share/postpython/<artifact>.json   export manifest ("post_abi": 1)
+$PREFIX/share/post-py/<artifact>.json   export manifest ("post_abi": 1)
 ```
 
-The NumPy extension module (`postpython build --ext-module`) is built by
+The NumPy extension module (`post-py build --ext-module`) is built by
 the `pp<name>` recipe and installed into the environment's
 `site-packages` like any extension; it links the same translation units.
 
@@ -87,17 +87,17 @@ outputs:
   - package:
       name: libppspecial
     requirements:
-      build: [postpython, c-compiler]
+      build: [postpyc, c-compiler]
     build:
-      script: postpython build ppspecial/__init__.py --prefix $PREFIX
+      script: post-py build ppspecial/__init__.py --prefix $PREFIX
   - package:
       name: ppspecial
     requirements:
-      build: [postpython, c-compiler, python, numpy]
+      build: [postpyc, c-compiler, python, numpy]
       run: [python, numpy]
     build:
       script: |
-        postpython build ppspecial/__init__.py --ext-module \
+        post-py build ppspecial/__init__.py --ext-module \
             --module-name ppspecial_native --output $SP_DIR/ppspecial_native.so
         python -m pip install . --no-deps
 ```
@@ -117,20 +117,20 @@ managers above, or at explicit local compilation below.
 Building locally is always a supported path — from a source checkout
 *or* from the pure package installed off PyPI, whose `.py` files are
 the POST sources. It requires a functional POST-compatible compiler
-chain: a conforming POST compiler (today, the reference `postpython`)
+chain: a conforming POST compiler (today, the reference `postpyc`)
 and a C toolchain.
 
 From a checkout:
 
 ```bash
-postpython build ppspecial/__init__.py --emit-header --emit-manifest
-postpython build ppspecial/__init__.py --ext-module
+post-py build ppspecial/__init__.py --emit-header --emit-manifest
+post-py build ppspecial/__init__.py --ext-module
 ```
 
 From an installed pure wheel:
 
 ```bash
-postpython build "$(python -c 'import ppspecial; print(ppspecial.__file__)')" \
+post-py build "$(python -c 'import ppspecial; print(ppspecial.__file__)')" \
     --ext-module --output ./ppspecial_native.so
 ```
 

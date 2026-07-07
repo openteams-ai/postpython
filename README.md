@@ -1,11 +1,12 @@
-# PostPython
+# postpyc — the POST Python Compiler
 
 [![CI](https://github.com/openteams-ai/postpython/actions/workflows/ci.yml/badge.svg)](https://github.com/openteams-ai/postpython/actions/workflows/ci.yml)
 
 **Website:** <https://post-py.org/>
 
-PostPython is an early reference project for **POST Python**: Performance
-Optimized Statically Typed Python.
+This repository is **postpyc**, the POST Python Compiler — the reference
+implementation of the **POST Python** standard (Performance Optimized
+Statically Typed Python) — together with the standard's specification.
 
 The goal is to define a clear, portable subset of Python that can be compiled
 ahead of time to native code, in the spirit of tools like Numba, Cython, Codon,
@@ -41,7 +42,7 @@ rebuilding SciPy one subpackage at a time — the project's primary proving
 ground. See [postscipy-roadmap.md](postscipy-roadmap.md) for the package map,
 sequencing, and the compiler-capability matrix that work feeds.
 
-PostPython is not production-ready. It is a reference implementation and design
+POST Python is not production-ready. It is a reference implementation and design
 vehicle for the standard.
 
 ## Language Sketch
@@ -49,9 +50,9 @@ vehicle for the standard.
 POST Python code uses ordinary Python syntax with explicit type annotations:
 
 ```python
-from postpython import vectorize
+from postpyc import vectorize
 from postyp import Float64
-from postpython.math import exp
+from postpyc.math import exp
 
 
 @vectorize
@@ -64,7 +65,7 @@ Generalized vectorized kernels use Numba-style `@guvectorize` with output
 parameters:
 
 ```python
-from postpython import guvectorize
+from postpyc import guvectorize
 from postyp import Array, Float64
 
 
@@ -80,21 +81,21 @@ def dot(a: Array[Float64], b: Array[Float64], out: Array[Float64]) -> None:
 
 ```text
 docs/spec.md              Draft language specification
-postyp.py                 Type vocabulary and annotations
-postpython/checker.py     Structural subset checker
-postpython/compiler/      AST frontend, IR, and C backend
-postpython/ufunc.py       @vectorize and @guvectorize runtime wrappers
-postpython/build.py       POST Python to C99 to shared-library build helper
-postpython/math.py        Typed scalar math wrappers
+postyp-dist/postyp.py     Type vocabulary (published separately as `postyp`)
+postpyc/checker.py     Structural subset checker
+postpyc/compiler/      AST frontend, IR, and C backend
+postpyc/ufunc.py       @vectorize and @guvectorize runtime wrappers
+postpyc/build.py       POST Python to C99 to shared-library build helper
+postpyc/math.py        Typed scalar math wrappers
 examples/                 Example POST Python source files
 tests/                    Reference test suite
 ```
 
 ## Installation
 
-PostPython ships as a regular Python package and can be installed with either
+POST Python ships as a regular Python package and can be installed with either
 `pip` or [pixi](https://pixi.sh/). Both paths install two importable units:
-the `postpython` package and the `postyp` type module.
+the `postpyc` package and the `postyp` type module.
 
 A working C compiler (`cc`, `clang`, or `gcc`) is required to compile POST
 Python sources to native code. The pixi environment installs one for you;
@@ -102,11 +103,20 @@ under pip you need a system compiler.
 
 ### With pip
 
-Install the latest release from a local checkout (a future release will be
-published to PyPI):
+```bash
+python -m pip install postpyc
+```
+
+The distribution is named `postpyc` (`postpython` and `postpy` on PyPI
+belong to unrelated projects, and PyPI's name-similarity rule blocks
+`post-py`). The import name matches: `import postpyc`. The type vocabulary
+is published separately as [`postyp`](https://pypi.org/project/postyp/)
+and installed automatically as a dependency.
+
+From a local checkout:
 
 ```bash
-python -m pip install .
+python -m pip install ./postyp-dist .
 ```
 
 For development — including `pytest`, `numpy`, and `narwhals` — install the
@@ -126,7 +136,7 @@ pytest
 
 `pyproject.toml` contains a `[tool.pixi]` workspace. Pixi resolves
 conda-forge dependencies (Python, NumPy, narwhals, a C compiler) and installs
-PostPython itself as an editable PyPI package, so any source changes are
+POST Python itself as an editable PyPI package, so any source changes are
 picked up immediately.
 
 ```bash
@@ -138,7 +148,7 @@ Run a defined task:
 
 ```bash
 pixi run -e dev test                # pytest tests/
-pixi run -e dev check FILE.py       # postpython-check on a source file
+pixi run -e dev check FILE.py       # post-py check on a source file
 pixi run -e dev build-example       # python examples/build_shared_lib.py
 ```
 
@@ -160,7 +170,7 @@ python examples/build_shared_lib.py
 Or call the build helper directly:
 
 ```python
-from postpython.build import build_file
+from postpyc.build import build_file
 
 lib_path = build_file("examples/gaussian.py")
 print(lib_path)

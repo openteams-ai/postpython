@@ -1,7 +1,7 @@
 """Compiler control-flow lowering tests."""
 
-from postpython.compiler.frontend import compile_source
-from postpython.compiler.ir import Branch, CondBranch
+from postpyc.compiler.frontend import compile_source
+from postpyc.compiler.ir import Branch, CondBranch
 
 
 def compile_errors(source: str) -> list:

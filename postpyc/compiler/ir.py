@@ -21,8 +21,8 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Optional, Union
 
-# sys.path setup happens once in postpython/__init__.py.
-import postpython  # noqa: F401  -- ensure path setup runs
+# sys.path setup happens once in postpyc/__init__.py.
+import postpyc  # noqa: F401  -- ensure path setup runs
 from postyp import DType, AnyShape, Shape, ArrayLayout, COrder
 
 
@@ -324,7 +324,7 @@ class Module:
     functions: list[Function] = field(default_factory=list)
     # Names imported from other POST translation units, keyed by local name.
     post_imports: dict[str, ImportedName] = field(default_factory=dict)
-    # Names imported from postpython.math, keyed by local name; the value
+    # Names imported from postpyc.math, keyed by local name; the value
     # is the libm-compatible symbol the call lowers to.
     intrinsic_imports: dict[str, str] = field(default_factory=dict)
     # Names imported from CPython-boundary modules (not compilable), keyed
@@ -335,7 +335,7 @@ class Module:
     # Resolved Module objects for those dependencies (set by compile_program).
     dep_modules: list["Module"] = field(default_factory=list, repr=False)
     # Module-level constants: name → (dtype, folded Python value). Includes
-    # compile-time constant imports (e.g. postpython.math.PI).
+    # compile-time constant imports (e.g. postpyc.math.PI).
     constants: dict[str, tuple[type[DType], object]] = field(default_factory=dict)
     # Module-level function aliases (``gammaln = lgamma``): alias name →
     # the aliased name (a function of this module, an imported POST

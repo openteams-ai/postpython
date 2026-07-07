@@ -9,7 +9,7 @@ broadcasting over arbitrary array shapes is handled by the runtime.
 """
 
 from postyp import Float64, Int64, Bool
-from postpython import vectorize
+from postpyc import vectorize
 
 
 # ---------------------------------------------------------------------------

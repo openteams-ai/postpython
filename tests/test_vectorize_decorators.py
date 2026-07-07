@@ -2,10 +2,10 @@
 
 import pytest
 
-from postpython.compiler.backend.c_backend import emit_module
-from postpython.compiler.frontend import compile_source
-from postpython.compiler.ir import UFunc as UFuncIR
-from postpython import guvectorize, vectorize
+from postpyc.compiler.backend.c_backend import emit_module
+from postpyc.compiler.frontend import compile_source
+from postpyc.compiler.ir import UFunc as UFuncIR
+from postpyc import guvectorize, vectorize
 from postyp import Array, Float64
 
 
@@ -70,7 +70,7 @@ def test_guvectorize_interpreted_supports_scalar_output_parameter():
 
 def test_compiler_lowers_vectorize_as_scalar_ufunc():
     source = """\
-from postpython import vectorize
+from postpyc import vectorize
 from postyp import Float64
 
 @vectorize(["float64(float64, float64)"], target="cpu")
@@ -89,7 +89,7 @@ def add(x: Float64, y: Float64) -> Float64:
 
 def test_compiler_lowers_guvectorize_numba_form():
     source = """\
-from postpython import guvectorize
+from postpyc import guvectorize
 from postyp import Array, Float64
 
 @guvectorize([], "(n),()->(n)", target="cpu")
@@ -109,7 +109,7 @@ def add_scalar(x: Array[Float64], y: Float64, out: Array[Float64]) -> None:
 
 def test_guvectorize_requires_output_parameters():
     source = """\
-from postpython import guvectorize
+from postpyc import guvectorize
 from postyp import Array, Float64
 
 @guvectorize([], "(n)->()")

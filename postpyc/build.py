@@ -2,7 +2,7 @@
 
 High-level pipeline: POST Python source → C99 → native shared library.
 
-    from postpython.build import build_file, build_source
+    from postpyc.build import build_file, build_source
 
     lib_path = build_file("examples/gaussian.py")
     # → /tmp/gaussian-<hash>.so  (or .dylib on macOS)

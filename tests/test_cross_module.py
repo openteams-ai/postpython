@@ -11,9 +11,9 @@ import shutil
 
 import pytest
 
-from postpython.build import build_file, BuildError
-from postpython.compiler.backend.c_backend import emit_module
-from postpython.compiler.frontend import compile_program, compile_source
+from postpyc.build import build_file, BuildError
+from postpyc.compiler.backend.c_backend import emit_module
+from postpyc.compiler.frontend import compile_program, compile_source
 
 cc = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
 needs_cc = pytest.mark.skipif(cc is None, reason="No C compiler available")
@@ -301,7 +301,7 @@ def test_reserved_name_import_uses_mangled_symbol(tmp_path):
 def test_gufunc_call_across_modules_passes_core_dims(tmp_path):
     _write(tmp_path, "vec.py", (
         "from postyp import Array, Float64\n"
-        "from postpython import guvectorize\n"
+        "from postpyc import guvectorize\n"
         "@guvectorize([], \"(n),(n)->()\")\n"
         "def vdot(a: Array[Float64], b: Array[Float64], out: Array[Float64]) -> None:\n"
         "    acc: Float64 = 0.0\n"
@@ -311,7 +311,7 @@ def test_gufunc_call_across_modules_passes_core_dims(tmp_path):
     ))
     main = _write(tmp_path, "main.py", (
         "from postyp import Array, Float64\n"
-        "from postpython import guvectorize\n"
+        "from postpyc import guvectorize\n"
         "from vec import vdot\n"
         "@guvectorize([], \"(n),(n)->()\")\n"
         "def scaled_dot(a: Array[Float64], b: Array[Float64], out: Array[Float64]) -> None:\n"
@@ -388,8 +388,8 @@ def test_imported_reserved_name_links_to_post_function_not_libm(tmp_path):
 def test_vectorize_kernel_called_across_modules(tmp_path):
     _write(tmp_path, "kernels.py", (
         "from postyp import Float64\n"
-        "from postpython import vectorize\n"
-        "from postpython.math import exp\n"
+        "from postpyc import vectorize\n"
+        "from postpyc.math import exp\n"
         "@vectorize\n"
         "def sigmoid(x: Float64) -> Float64:\n"
         "    if x >= 0.0:\n"

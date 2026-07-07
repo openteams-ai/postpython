@@ -12,7 +12,7 @@ write-through pointer parameters in the emitted C.
 """
 
 from postyp import Array, Float64, Int64, Bool
-from postpython import guvectorize, vectorize
+from postpyc import guvectorize, vectorize
 
 
 # ---------------------------------------------------------------------------

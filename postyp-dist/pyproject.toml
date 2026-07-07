@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+# The POST Python type vocabulary as its own distribution. The spec (§10,
+# §12) treats `postyp` as the canonical, compiler-independent source of
+# type metadata: multiple conforming compilers introspect it rather than
+# duplicating dtype definitions. The module source lives in this
+# directory; the compiler repository's dev shim adds it to sys.path.
+
+[project]
+name = "postyp"
+version = "0.2.0"
+description = "POST Python type vocabulary: scalar dtypes, Array, Shape, layouts, DataFrame and Series annotations."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Travis E. Oliphant" }]
+keywords = ["types", "dtypes", "array-api", "post-python"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Compilers",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/openteams-ai/postpython"
+Specification = "https://github.com/openteams-ai/postpython/blob/main/docs/spec.md"
+Website = "https://post-py.org/"
+
+[tool.hatch.build.targets.wheel.force-include]
+"postyp.py" = "postyp.py"
+
+[tool.hatch.build.targets.sdist]
+include = ["postyp.py", "README.md", "pyproject.toml"]

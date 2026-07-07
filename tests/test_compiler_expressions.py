@@ -2,9 +2,9 @@
 compares, complex literals, and the related C backend emission.
 """
 
-from postpython.compiler.backend.c_backend import emit_module
-from postpython.compiler.frontend import compile_source
-from postpython.compiler.ir import (
+from postpyc.compiler.backend.c_backend import emit_module
+from postpyc.compiler.frontend import compile_source
+from postpyc.compiler.ir import (
     BinOp,
     BinOpInstr,
     Const,

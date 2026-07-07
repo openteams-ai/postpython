@@ -10,8 +10,8 @@ same file to native code with no Python runtime in the binary.
 
 ```python
 from postyp import Float64
-from postpython import vectorize
-from postpython.math import exp
+from postpyc import vectorize
+from postpyc.math import exp
 
 @vectorize
 def gaussian(x: Float64, mu: Float64, sigma: Float64) -> Float64:
@@ -24,11 +24,11 @@ That one definition is, today:
 
 - **an interpreted Python function** — callable immediately, NumPy
   broadcasting included;
-- **a native C kernel** — `postpython build` emits C99, compiles each
+- **a native C kernel** — `post-py build` emits C99, compiles each
   module as its own translation unit, and links a shared library with a
   [stable C ABI](toolchain.md): `pp_gaussian` callable from C, Rust,
   Julia, R, or ctypes;
-- **a real `numpy.ufunc`** — `postpython build --ext-module` produces an
+- **a real `numpy.ufunc`** — `post-py build --ext-module` produces an
   importable CPython extension with full broadcasting, `out=`, dtype
   handling, and the original docstring.
 

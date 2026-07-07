@@ -3,7 +3,7 @@
 Pipeline:
   source text
     → ast.parse                      (Python stdlib)
-    → postpython.checker violations  (reject non-compilable syntax)
+    → postpyc.checker violations  (reject non-compilable syntax)
     → FunctionLifter per function    (build IR Function / UFunc)
     → Module                         (collect into a translation unit)
 """
@@ -34,8 +34,8 @@ from .typechecker import (
     promote,
 )
 
-# sys.path setup happens once in postpython/__init__.py.
-import postpython  # noqa: F401  -- ensure path setup runs
+# sys.path setup happens once in postpyc/__init__.py.
+import postpyc  # noqa: F401  -- ensure path setup runs
 from postyp import (
     DType,
     Int64,
@@ -228,7 +228,7 @@ _COMPILE_TIME_MODULES: frozenset[str] = frozenset({
     "postyp", "dataclasses", "typing", "__future__",
 })
 
-_INTRINSIC_MODULE = "postpython.math"
+_INTRINSIC_MODULE = "postpyc.math"
 
 
 class FunctionLifter:
@@ -1096,7 +1096,7 @@ class FunctionLifter:
             b.emit(Call(result, symbol, args))
             return result
 
-        # Intrinsic (postpython.math / libm): infer the return dtype by
+        # Intrinsic (postpyc.math / libm): infer the return dtype by
         # promoting argument types, falling back to Float64.
         if args:
             ret_dtype = args[0].dtype
@@ -1114,7 +1114,7 @@ class FunctionLifter:
         Resolution order: functions of this module (including forward
         references, since all declarations exist before bodies are
         lowered), names imported from POST modules (following aliases),
-        postpython.math intrinsics, then a small builtin whitelist.
+        postpyc.math intrinsics, then a small builtin whitelist.
         Anything else is diagnosed — per spec §9.1, a call must not be
         silently compiled against an arbitrary imported (or libm) symbol.
         """
@@ -1616,7 +1616,7 @@ def _classify_imports(
         if mod == _INTRINSIC_MODULE:
             # Compile-time imports (spec §9.1): functions lower to libm
             # calls; numeric constants (PI, E, ...) fold to their values.
-            import postpython.math as _pp_math
+            import postpyc.math as _pp_math
             for alias in node.names:
                 if alias.name == "*":
                     continue
@@ -1627,7 +1627,7 @@ def _classify_imports(
                 else:
                     module.intrinsic_imports[local] = alias.name
             continue
-        if mod in _COMPILE_TIME_MODULES or mod.split(".")[0] == "postpython":
+        if mod in _COMPILE_TIME_MODULES or mod.split(".")[0] == "postpyc":
             continue
         for alias in node.names:
             if alias.name == "*":
@@ -1869,7 +1869,7 @@ def compile_program(
                 if (
                     mod == _INTRINSIC_MODULE
                     or mod in _COMPILE_TIME_MODULES
-                    or mod.split(".")[0] == "postpython"
+                    or mod.split(".")[0] == "postpyc"
                 ):
                     continue
                 dep_path = _resolve_post_module(mod, file_path, search_paths)

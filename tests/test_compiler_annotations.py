@@ -1,6 +1,6 @@
 """Compiler annotation validation tests."""
 
-from postpython.compiler.frontend import compile_source
+from postpyc.compiler.frontend import compile_source
 
 
 def error_codes(source: str) -> list[str]:
