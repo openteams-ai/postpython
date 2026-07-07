@@ -1,4 +1,4 @@
-"""post-py CLI: check and build subcommands (docs/distribution.md)."""
+"""postpyc CLI: check and build subcommands (docs/distribution.md)."""
 
 import ctypes
 import json

@@ -1,14 +1,14 @@
 # Toolchain & C ABI
 
-## The `post-py` CLI
+## The `postpyc` CLI
 
 ```
 postpyc check FILE...              structural subset checking
 postpyc build FILE|DIR [options]   compile to native artifacts
 ```
 
-(`postpyc` is an equivalent alias for the same command, matching the
-distribution name.)
+(`post-py` is an equivalent alias for the same command, matching the
+project domain.)
 
 Build options:
 
