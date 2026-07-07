@@ -82,11 +82,11 @@ def dot(a: Array[Float64], b: Array[Float64], out: Array[Float64]) -> None:
 ```text
 docs/spec.md              Draft language specification
 postyp-dist/postyp.py     Type vocabulary (published separately as `postyp`)
-postpyc/checker.py     Structural subset checker
-postpyc/compiler/      AST frontend, IR, and C backend
-postpyc/ufunc.py       @vectorize and @guvectorize runtime wrappers
-postpyc/build.py       POST Python to C99 to shared-library build helper
-postpyc/math.py        Typed scalar math wrappers
+postpyc/checker.py        Structural subset checker
+postpyc/compiler/         AST frontend, IR, and C backend
+postpyc/ufunc.py          @vectorize and @guvectorize runtime wrappers
+postpyc/build.py          POST Python to C99 to shared-library build helper
+postpyc/math.py           Typed scalar math wrappers
 examples/                 Example POST Python source files
 tests/                    Reference test suite
 ```
@@ -148,7 +148,7 @@ Run a defined task:
 
 ```bash
 pixi run -e dev test                # pytest tests/
-pixi run -e dev check FILE.py       # post-py check on a source file
+pixi run -e dev check FILE.py       # postpyc check on a source file
 pixi run -e dev build-example       # python examples/build_shared_lib.py
 ```
 

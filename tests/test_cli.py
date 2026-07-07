@@ -73,7 +73,7 @@ def test_build_prefix_layout(tmp_path, capsys):
 
     lib = prefix / "lib" / f"libppdemo{_LIB_SUFFIX}"
     header = prefix / "include" / "ppdemo.h"
-    manifest_path = prefix / "share" / "post-py" / "ppdemo.json"
+    manifest_path = prefix / "share" / "postpyc" / "ppdemo.json"
     assert lib.exists() and header.exists() and manifest_path.exists()
 
     manifest = json.loads(manifest_path.read_text())

@@ -295,7 +295,7 @@ def _main(argv: Sequence[str] | None = None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(
-        prog="post-py check",
+        prog="postpyc check",
         description="Check whether Python source files conform to the POST Python subset.",
     )
     parser.add_argument("files", nargs="+", metavar="FILE", help="source files to check")

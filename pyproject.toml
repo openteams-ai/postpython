@@ -91,7 +91,7 @@ docs = { features = ["docs"], solve-group = "default" }
 
 [tool.pixi.tasks]
 test = { cmd = "pytest tests/", description = "Run the test suite." }
-check = { cmd = "post-py check", description = "Run the POST Python structural checker." }
+check = { cmd = "postpyc check", description = "Run the POST Python structural checker." }
 build-example = { cmd = "python examples/build_shared_lib.py", description = "Build the example shared library." }
 docs-serve = { cmd = "mkdocs serve", description = "Serve the website locally with live reload." }
 docs-build = { cmd = "mkdocs build --strict", description = "Build the website into site/." }
