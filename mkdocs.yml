@@ -1,4 +1,4 @@
-site_name: POST Python
+site_name: Post-Py
 site_description: >-
   Performance Optimized Statically Typed Python — a compilable subset of
   Python with a normative specification and a reference AOT compiler.

@@ -1,4 +1,4 @@
-"""Tests for postyp — POST Python type library."""
+"""Tests for postyp — Post-Py type library."""
 
 import pytest
 from postyp import (

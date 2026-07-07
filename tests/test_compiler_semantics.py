@@ -6,9 +6,9 @@ import itertools
 
 import pytest
 
-from postpython.compiler.backend.c_backend import emit_module
-from postpython.compiler.frontend import compile_source
-from postpython.compiler.typechecker import promote
+from post_py.compiler.backend.c_backend import emit_module
+from post_py.compiler.frontend import compile_source
+from post_py.compiler.typechecker import promote
 from postyp import (
     Bool,
     Complex64, Complex128,

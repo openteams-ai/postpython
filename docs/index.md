@@ -1,17 +1,17 @@
-# POST Python
+# Post-Py
 
 **Performance Optimized Statically Typed Python** — a defined, compilable
 subset of Python with a normative specification and a reference
 ahead-of-time compiler.
 
-A POST Python source file is valid Python. It runs unmodified under the
+A Post-Py source file is valid Python. It runs unmodified under the
 standard CPython interpreter — and a conforming compiler translates the
 same file to native code with no Python runtime in the binary.
 
 ```python
 from postyp import Float64
-from postpython import vectorize
-from postpython.math import exp
+from post_py import vectorize
+from post_py.math import exp
 
 @vectorize
 def gaussian(x: Float64, mu: Float64, sigma: Float64) -> Float64:
@@ -24,11 +24,11 @@ That one definition is, today:
 
 - **an interpreted Python function** — callable immediately, NumPy
   broadcasting included;
-- **a native C kernel** — `postpython build` emits C99, compiles each
+- **a native C kernel** — `post-py build` emits C99, compiles each
   module as its own translation unit, and links a shared library with a
   [stable C ABI](toolchain.md): `pp_gaussian` callable from C, Rust,
   Julia, R, or ctypes;
-- **a real `numpy.ufunc`** — `postpython build --ext-module` produces an
+- **a real `numpy.ufunc`** — `post-py build --ext-module` produces an
   importable CPython extension with full broadcasting, `out=`, dtype
   handling, and the original docstring.
 
@@ -37,7 +37,7 @@ One code base. One artifact per audience. No vendored binaries.
 ## Why a standard, not just a compiler
 
 Python has many compilation projects — Cython, mypyc, Numba, Codon,
-Pythran, taichi — each defining its own informal subset. POST Python
+Pythran, taichi — each defining its own informal subset. Post-Py
 inverts that: the [specification](spec.md) is normative, organized into
 conformance profiles (POST Core, POST Array, POST Ufunc ABI, CPython
 Extension, …), and the compiler in this repository is a *reference
@@ -46,14 +46,14 @@ conformance for the profiles they support.
 
 The reference implementation follows one cardinal rule: **reject
 unsupported semantics clearly rather than accepting code and changing
-behavior.** Valid-but-unimplemented POST Python produces an explicit
+behavior.** Valid-but-unimplemented Post-Py produces an explicit
 diagnostic, never a silent rewrite.
 
 ## Proving ground: rebuilding SciPy
 
 The primary way the language and compiler grow is the
 [PostSciPy effort](postscipy.md) — recreating SciPy one subpackage at a
-time as pure POST Python libraries
+time as pure Post-Py libraries
 ([ppspecial](https://github.com/openteams-ai/ppspecial) for
 `scipy.special`, with thirteen more `pp*` packages scaffolded). Real
 numerical code discovers what the language is missing; those gaps become
@@ -66,7 +66,7 @@ into a single library and an importable NumPy extension.
 
 ## Status
 
-POST Python is early and moving fast. Working today in the reference
+Post-Py is early and moving fast. Working today in the reference
 implementation:
 
 | Area | State |

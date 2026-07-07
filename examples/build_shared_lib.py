@@ -1,10 +1,10 @@
-"""POST Python → shared library: complete worked example.
+"""Post-Py → shared library: complete worked example.
 
 Pipeline
 --------
-1. Check   postpython.checker      — reject non-compilable syntax (PP000-PP033)
-2. Lower   postpython.compiler.frontend  — AST → POST Python IR
-3. Emit    postpython.compiler.backend.c_backend  — IR → C99 source
+1. Check   post_py.checker      — reject non-compilable syntax (PP000-PP033)
+2. Lower   post_py.compiler.frontend  — AST → Post-Py IR
+3. Emit    post_py.compiler.backend.c_backend  — IR → C99 source
 4. Compile system C compiler       — C99 → native shared library
 5. Load    ctypes                  — call compiled functions from Python
 6. Batch   numpy                   — broadcast over arrays via the ufunc wrapper
@@ -26,10 +26,10 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-from postpython.checker import check_source
-from postpython.compiler.frontend import compile_source
-from postpython.compiler.backend.c_backend import emit_module
-from postpython.build import build_file, BuildError
+from post_py.checker import check_source
+from post_py.compiler.frontend import compile_source
+from post_py.compiler.backend.c_backend import emit_module
+from post_py.build import build_file, BuildError
 
 SOURCE = ROOT / "examples" / "gaussian.py"
 
@@ -49,10 +49,10 @@ def indent(text: str, n: int = 4) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Step 1: POST Python compliance check
+# Step 1: Post-Py compliance check
 # ---------------------------------------------------------------------------
 
-section("Step 1 — POST Python compliance check")
+section("Step 1 — Post-Py compliance check")
 
 source = SOURCE.read_text()
 violations = check_source(source, filename=str(SOURCE))
@@ -69,7 +69,7 @@ print(f"  PASS  {SOURCE.name}  — no violations")
 # Step 2: AST → IR
 # ---------------------------------------------------------------------------
 
-section("Step 2 — AST → POST Python IR")
+section("Step 2 — AST → Post-Py IR")
 
 module, errors = compile_source(source, filename=str(SOURCE))
 if errors:
@@ -175,7 +175,7 @@ except ImportError:
     print("  (numpy not installed; skipping broadcast demo)")
     sys.exit(0)
 
-# Import the POST Python module — the @vectorize decorator provides an
+# Import the Post-Py module — the @vectorize decorator provides an
 # interpreted broadcast path until the compiled ufunc loop is registered.
 import importlib.util, types
 

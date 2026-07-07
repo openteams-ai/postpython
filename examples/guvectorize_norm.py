@@ -1,4 +1,4 @@
-"""Example: L2 norm as a POST Python @guvectorize kernel.
+"""Example: L2 norm as a Post-Py @guvectorize kernel.
 
 Signature: (n)->()
 
@@ -7,7 +7,7 @@ The norm broadcasts naturally over batches: norm([[3,4],[5,12]]) → [5., 13.]
 """
 
 from postyp import Array, Float64
-from postpython import guvectorize
+from post_py import guvectorize
 
 
 @guvectorize([], "(n)->()")

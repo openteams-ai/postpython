@@ -1,7 +1,7 @@
 """C backend tests for the POST Array ABI."""
 
-from postpython.compiler.backend.c_backend import emit_module
-from postpython.compiler.frontend import compile_source
+from post_py.compiler.backend.c_backend import emit_module
+from post_py.compiler.frontend import compile_source
 
 
 def emit_c(source: str) -> str:
@@ -13,7 +13,7 @@ def emit_c(source: str) -> str:
 def test_guvectorize_inner_kernel_receives_array_view_with_runtime_strides():
     source = """\
 from postyp import Array, Float64
-from postpython import guvectorize
+from post_py import guvectorize
 
 @guvectorize([], "(n),(n)->()")
 def dot(a: Array[Float64], b: Array[Float64], out: Array[Float64]) -> None:
@@ -43,7 +43,7 @@ def dot(a: Array[Float64], b: Array[Float64], out: Array[Float64]) -> None:
 def test_guvectorize_2d_core_views_consume_steps_in_argument_order():
     source = """\
 from postyp import Array, Float64, FOrder
-from postpython import guvectorize
+from post_py import guvectorize
 
 @guvectorize([], "(m,n)->()")
 def first(x: Array[Float64, FOrder], out: Array[Float64]) -> None:
@@ -64,7 +64,7 @@ def first(x: Array[Float64, FOrder], out: Array[Float64]) -> None:
 def test_ufunc_loop_symbol_is_exported():
     source = """\
 from postyp import Array, Float64
-from postpython import guvectorize
+from post_py import guvectorize
 
 @guvectorize([], "(n)->()")
 def total(a: Array[Float64], out: Array[Float64]) -> None:

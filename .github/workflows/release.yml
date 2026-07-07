@@ -1,0 +1,61 @@
+name: Release
+
+# Publishes `postyp` and `post-py` to PyPI via Trusted Publishing (OIDC —
+# no long-lived tokens). Prerequisite: both project names configured on
+# PyPI with this repo/workflow as a (pending) trusted publisher, using
+# environment name `pypi`.
+#
+# Trigger: publish a GitHub release, or run manually.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install build
+      - name: Build postyp
+        run: python -m build --outdir dist-postyp postyp-dist
+      - name: Build post-py
+        run: python -m build --outdir dist-postpy .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-postyp
+          path: dist-postyp/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-postpy
+          path: dist-postpy/
+
+  publish-postyp:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-postyp
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-post-py:
+    needs: publish-postyp   # postyp first: post-py depends on it
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-postpy
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

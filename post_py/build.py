@@ -1,8 +1,8 @@
-"""POST Python build driver.
+"""Post-Py build driver.
 
-High-level pipeline: POST Python source → C99 → native shared library.
+High-level pipeline: Post-Py source → C99 → native shared library.
 
-    from postpython.build import build_file, build_source
+    from post_py.build import build_file, build_source
 
     lib_path = build_file("examples/gaussian.py")
     # → /tmp/gaussian-<hash>.so  (or .dylib on macOS)
@@ -81,7 +81,7 @@ def _python_include_flags() -> list[str]:
 # ---------------------------------------------------------------------------
 
 class BuildError(RuntimeError):
-    """Raised when the POST Python → shared-library pipeline fails."""
+    """Raised when the Post-Py → shared-library pipeline fails."""
 
 
 def _run(cmd: list[str]) -> None:
@@ -222,7 +222,7 @@ def build_source(
     keep_c: bool = False,
     numpy_ufunc: bool = False,
 ) -> Path:
-    """Compile *source* (a single POST Python translation unit) to a
+    """Compile *source* (a single Post-Py translation unit) to a
     shared library.
 
     POST module imports are not resolved from bare source text; use
@@ -230,7 +230,7 @@ def build_source(
 
     Parameters
     ----------
-    source      POST Python source text.
+    source      Post-Py source text.
     filename    Name used in error messages.
     output      Path for the output .so / .dylib.  Defaults to a temp file.
     cc          C compiler command (default: ``cc``).
@@ -245,7 +245,7 @@ def build_source(
     violations = check_source(source, filename=filename)
     if violations:
         lines = "\n".join(f"  {v}" for v in violations)
-        raise BuildError(f"POST Python violations in {filename!r}:\n{lines}")
+        raise BuildError(f"Post-Py violations in {filename!r}:\n{lines}")
 
     module, errors = _ir_compile(source, filename=filename)
     if errors:
@@ -280,7 +280,7 @@ def build_file(
     emit_header: bool = False,
     emit_manifest: bool = False,
 ) -> Path:
-    """Compile a POST Python source *file* — and every POST module it
+    """Compile a Post-Py source *file* — and every POST module it
     imports — into one shared library.
 
     Each translation unit becomes its own object file; the objects are

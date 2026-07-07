@@ -1,6 +1,6 @@
-"""POST Python type checker and inference engine.
+"""Post-Py type checker and inference engine.
 
-Operates on Python AST nodes after the checker (postpython.checker) has
+Operates on Python AST nodes after the checker (post_py.checker) has
 confirmed the source is in the compilable subset.  Produces a type
 environment mapping AST node ids to postyp DType subclasses.
 """
@@ -11,8 +11,8 @@ import ast
 from dataclasses import dataclass, field
 from typing import Optional
 
-# sys.path setup happens once in postpython/__init__.py.
-import postpython  # noqa: F401  -- ensure path setup runs
+# sys.path setup happens once in post_py/__init__.py.
+import post_py  # noqa: F401  -- ensure path setup runs
 from postyp import (
     DType, Bool,
     Int8, Int16, Int32, Int64,
@@ -67,7 +67,7 @@ _ANNOTATION_MAP: dict[str, type[DType]] = {
     "Str":        Str, "Bytes": Bytes,
     # Aliases
     "Int":        Int64, "Float": Float64, "Complex": Complex128,
-    # Python built-ins → canonical POST Python types
+    # Python built-ins → canonical Post-Py types
     "bool":       Bool,
     "int":        Int64,
     "float":      Float64,
@@ -262,7 +262,7 @@ def resolve_annotation_info(node: ast.expr) -> ResolvedAnnotation:
             )
         if head in {"Optional", "Union", "Tuple", "List"}:
             return _unsupported_annotation(
-                f"`{head}` annotations are valid POST Python but are not lowered by this compiler yet"
+                f"`{head}` annotations are valid Post-Py but are not lowered by this compiler yet"
             )
 
     if head in {"DataFrame", "LazyFrame"}:

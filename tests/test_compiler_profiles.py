@@ -1,6 +1,6 @@
 """Compiler profile diagnostics for valid but unsupported POST features."""
 
-from postpython.compiler.frontend import compile_source
+from post_py.compiler.frontend import compile_source
 
 
 def compile_errors(source: str) -> list:

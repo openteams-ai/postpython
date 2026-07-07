@@ -1,9 +1,9 @@
-"""POST Python frontend: Python AST → POST Python IR.
+"""Post-Py frontend: Python AST → Post-Py IR.
 
 Pipeline:
   source text
     → ast.parse                      (Python stdlib)
-    → postpython.checker violations  (reject non-compilable syntax)
+    → post_py.checker violations  (reject non-compilable syntax)
     → FunctionLifter per function    (build IR Function / UFunc)
     → Module                         (collect into a translation unit)
 """
@@ -34,8 +34,8 @@ from .typechecker import (
     promote,
 )
 
-# sys.path setup happens once in postpython/__init__.py.
-import postpython  # noqa: F401  -- ensure path setup runs
+# sys.path setup happens once in post_py/__init__.py.
+import post_py  # noqa: F401  -- ensure path setup runs
 from postyp import (
     DType,
     Int64,
@@ -228,7 +228,7 @@ _COMPILE_TIME_MODULES: frozenset[str] = frozenset({
     "postyp", "dataclasses", "typing", "__future__",
 })
 
-_INTRINSIC_MODULE = "postpython.math"
+_INTRINSIC_MODULE = "post_py.math"
 
 
 class FunctionLifter:
@@ -290,7 +290,7 @@ class FunctionLifter:
         self._compiler_error(
             node,
             "PP900",
-            f"{feature} is valid POST Python but is not lowered by this compiler yet",
+            f"{feature} is valid Post-Py but is not lowered by this compiler yet",
         )
 
     def lift(self) -> Function:
@@ -968,7 +968,7 @@ class FunctionLifter:
         """Lower comparisons, including chains like ``a < b < c``.
 
         A chain ``a op0 b op1 c`` is lowered to ``(a op0 b) and (b op1 c)``,
-        evaluating each comparand exactly once. POST Python expressions are
+        evaluating each comparand exactly once. Post-Py expressions are
         side-effect free at the boundaries we lower, so non-short-circuit
         evaluation is observably equivalent.
         """
@@ -1096,7 +1096,7 @@ class FunctionLifter:
             b.emit(Call(result, symbol, args))
             return result
 
-        # Intrinsic (postpython.math / libm): infer the return dtype by
+        # Intrinsic (post_py.math / libm): infer the return dtype by
         # promoting argument types, falling back to Float64.
         if args:
             ret_dtype = args[0].dtype
@@ -1114,7 +1114,7 @@ class FunctionLifter:
         Resolution order: functions of this module (including forward
         references, since all declarations exist before bodies are
         lowered), names imported from POST modules (following aliases),
-        postpython.math intrinsics, then a small builtin whitelist.
+        post_py.math intrinsics, then a small builtin whitelist.
         Anything else is diagnosed — per spec §9.1, a call must not be
         silently compiled against an arbitrary imported (or libm) symbol.
         """
@@ -1616,7 +1616,7 @@ def _classify_imports(
         if mod == _INTRINSIC_MODULE:
             # Compile-time imports (spec §9.1): functions lower to libm
             # calls; numeric constants (PI, E, ...) fold to their values.
-            import postpython.math as _pp_math
+            import post_py.math as _pp_math
             for alias in node.names:
                 if alias.name == "*":
                     continue
@@ -1627,7 +1627,7 @@ def _classify_imports(
                 else:
                     module.intrinsic_imports[local] = alias.name
             continue
-        if mod in _COMPILE_TIME_MODULES or mod.split(".")[0] == "postpython":
+        if mod in _COMPILE_TIME_MODULES or mod.split(".")[0] == "post_py":
             continue
         for alias in node.names:
             if alias.name == "*":
@@ -1660,7 +1660,7 @@ def compile_source(
     *,
     program: Optional[dict[str, Module]] = None,
 ) -> tuple[Module, list]:
-    """Parse and lower *source* to a POST Python Module.
+    """Parse and lower *source* to a Post-Py Module.
 
     Returns (module, errors) where errors is a list of Violation or
     type-error strings.  An empty error list means the translation
@@ -1704,7 +1704,7 @@ def compile_source(
         elif isinstance(node, ast.ClassDef):
             errors.append(TypeError_PP(
                 code="PP900",
-                message="class/dataclass definitions are valid POST Python but are not lowered by this compiler yet",
+                message="class/dataclass definitions are valid Post-Py but are not lowered by this compiler yet",
                 lineno=node.lineno,
                 col_offset=node.col_offset,
             ))
@@ -1869,7 +1869,7 @@ def compile_program(
                 if (
                     mod == _INTRINSIC_MODULE
                     or mod in _COMPILE_TIME_MODULES
-                    or mod.split(".")[0] == "postpython"
+                    or mod.split(".")[0] == "post_py"
                 ):
                     continue
                 dep_path = _resolve_post_module(mod, file_path, search_paths)

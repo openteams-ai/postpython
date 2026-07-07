@@ -1,4 +1,4 @@
-"""POST Python Intermediate Representation.
+"""Post-Py Intermediate Representation.
 
 A typed, SSA-inspired three-address IR.  The design is intentionally
 simple: basic blocks, typed values, explicit control flow.  Later passes
@@ -21,8 +21,8 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Optional, Union
 
-# sys.path setup happens once in postpython/__init__.py.
-import postpython  # noqa: F401  -- ensure path setup runs
+# sys.path setup happens once in post_py/__init__.py.
+import post_py  # noqa: F401  -- ensure path setup runs
 from postyp import DType, AnyShape, Shape, ArrayLayout, COrder
 
 
@@ -167,7 +167,7 @@ class Select:
 
 @dataclass
 class Alloc:
-    """result = alloc(dtype, length)  — allocate an array on the POST Python heap"""
+    """result = alloc(dtype, length)  — allocate an array on the Post-Py heap"""
     result: Value
     length: Value             # number of elements
 
@@ -259,7 +259,7 @@ class Param:
 
 @dataclass
 class Function:
-    """A typed POST Python function."""
+    """A typed Post-Py function."""
     name: str
     params: list[Param]
     return_dtype: Optional[type[DType]]   # None → void
@@ -319,12 +319,12 @@ class ImportedName:
 
 @dataclass
 class Module:
-    """A POST Python translation unit."""
+    """A Post-Py translation unit."""
     name: str                               # typically the source filename stem
     functions: list[Function] = field(default_factory=list)
     # Names imported from other POST translation units, keyed by local name.
     post_imports: dict[str, ImportedName] = field(default_factory=dict)
-    # Names imported from postpython.math, keyed by local name; the value
+    # Names imported from post_py.math, keyed by local name; the value
     # is the libm-compatible symbol the call lowers to.
     intrinsic_imports: dict[str, str] = field(default_factory=dict)
     # Names imported from CPython-boundary modules (not compilable), keyed
@@ -335,7 +335,7 @@ class Module:
     # Resolved Module objects for those dependencies (set by compile_program).
     dep_modules: list["Module"] = field(default_factory=list, repr=False)
     # Module-level constants: name → (dtype, folded Python value). Includes
-    # compile-time constant imports (e.g. postpython.math.PI).
+    # compile-time constant imports (e.g. post_py.math.PI).
     constants: dict[str, tuple[type[DType], object]] = field(default_factory=dict)
     # Module-level function aliases (``gammaln = lgamma``): alias name →
     # the aliased name (a function of this module, an imported POST

@@ -1,4 +1,4 @@
-"""Gaussian kernel functions — POST Python example source.
+"""Gaussian kernel functions — Post-Py example source.
 
 Demonstrates three @vectorize patterns:
 
@@ -6,13 +6,13 @@ Demonstrates three @vectorize patterns:
   gaussian(x, mu, sigma)     — normal PDF value at x
   relu(x)                    — rectified linear unit (conditional return)
 
-All functions are valid POST Python: every parameter and local variable is
+All functions are valid Post-Py: every parameter and local variable is
 annotated, no reflection, no closures, no *args / **kwargs.
 """
 
 from postyp import Float64
-from postpython import vectorize
-from postpython.math import exp
+from post_py import vectorize
+from post_py.math import exp
 
 
 @vectorize

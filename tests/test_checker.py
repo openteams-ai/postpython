@@ -1,7 +1,7 @@
-"""Tests for the POST Python subset checker."""
+"""Tests for the Post-Py subset checker."""
 
 import pytest
-from postpython.checker import check_source, is_valid
+from post_py.checker import check_source, is_valid
 
 
 def violations_for(source: str) -> set[str]:
@@ -15,7 +15,7 @@ def only_violation(source: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Valid POST Python — should produce zero violations
+# Valid Post-Py — should produce zero violations
 # ---------------------------------------------------------------------------
 
 VALID_TYPED = """\

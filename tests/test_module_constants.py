@@ -2,7 +2,7 @@
 
 Top-level typed constants fold at compile time: literals, constant
 expressions, references to prior constants, compile-time imports from
-postpython.math, and constants imported from other POST modules.
+post_py.math, and constants imported from other POST modules.
 """
 
 import ctypes
@@ -11,9 +11,9 @@ import shutil
 
 import pytest
 
-from postpython.build import build_file, build_source
-from postpython.compiler.backend.c_backend import emit_module
-from postpython.compiler.frontend import compile_program, compile_source
+from post_py.build import build_file, build_source
+from post_py.compiler.backend.c_backend import emit_module
+from post_py.compiler.frontend import compile_program, compile_source
 from postyp import Bool, Complex128, Float64, Int64
 
 cc = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
@@ -75,10 +75,10 @@ def test_constants_can_reference_prior_constants():
     assert module.constants["SCALED"] == (Float64, 7.0)
 
 
-def test_postpython_math_constants_fold_in():
+def test_post_py_math_constants_fold_in():
     module = _module_ok(
         "from postyp import Float64\n"
-        "from postpython.math import PI, E\n"
+        "from post_py.math import PI, E\n"
         "TWO_PI: Float64 = 2.0 * PI\n"
         "def circ(r: Float64) -> Float64:\n"
         "    return TWO_PI * r\n"
@@ -172,7 +172,7 @@ def test_cross_module_constant_import(tmp_path):
 def test_pi_circumference_runtime():
     lib = ctypes.CDLL(str(build_source(
         "from postyp import Float64\n"
-        "from postpython.math import PI\n"
+        "from post_py.math import PI\n"
         "def circ(r: Float64) -> Float64:\n"
         "    return 2.0 * PI * r\n",
         filename="circ.py",

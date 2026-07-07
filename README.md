@@ -1,15 +1,15 @@
-# PostPython
+# Post-Py
 
 [![CI](https://github.com/openteams-ai/postpython/actions/workflows/ci.yml/badge.svg)](https://github.com/openteams-ai/postpython/actions/workflows/ci.yml)
 
 **Website:** <https://post-py.org/>
 
-PostPython is an early reference project for **POST Python**: Performance
+Post-Py is an early reference project for **Post-Py**: Performance
 Optimized Statically Typed Python.
 
 The goal is to define a clear, portable subset of Python that can be compiled
 ahead of time to native code, in the spirit of tools like Numba, Cython, Codon,
-Pythran, taichi-lang, and related compiled Python variants. A POST Python source
+Pythran, taichi-lang, and related compiled Python variants. A Post-Py source
 file is still valid Python, but the language subset, type vocabulary, array ABI,
 and vectorized kernel model are specified so multiple compiler implementations
 can target the same standard.
@@ -23,7 +23,7 @@ native packages for conda/pixi/nix) lives in
 
 This repository contains:
 
-- A draft language specification for POST Python 0.2.
+- A draft language specification for Post-Py 0.2.
 - A structural checker for the compilable Python subset.
 - A typed frontend that lowers Python AST into a small IR.
 - A C99 backend that emits native shared-library code.
@@ -35,23 +35,23 @@ This repository contains:
   and vectorized decorators.
 
 A companion library, [ppspecial](https://github.com/openteams-ai/ppspecial),
-reimplements `scipy.special` in pure POST Python and serves as the standard's
+reimplements `scipy.special` in pure Post-Py and serves as the standard's
 flagship real-world consumer. It is the first of a family of `pp*` packages
 rebuilding SciPy one subpackage at a time — the project's primary proving
 ground. See [postscipy-roadmap.md](postscipy-roadmap.md) for the package map,
 sequencing, and the compiler-capability matrix that work feeds.
 
-PostPython is not production-ready. It is a reference implementation and design
+Post-Py is not production-ready. It is a reference implementation and design
 vehicle for the standard.
 
 ## Language Sketch
 
-POST Python code uses ordinary Python syntax with explicit type annotations:
+Post-Py code uses ordinary Python syntax with explicit type annotations:
 
 ```python
-from postpython import vectorize
+from post_py import vectorize
 from postyp import Float64
-from postpython.math import exp
+from post_py.math import exp
 
 
 @vectorize
@@ -64,7 +64,7 @@ Generalized vectorized kernels use Numba-style `@guvectorize` with output
 parameters:
 
 ```python
-from postpython import guvectorize
+from post_py import guvectorize
 from postyp import Array, Float64
 
 
@@ -80,21 +80,21 @@ def dot(a: Array[Float64], b: Array[Float64], out: Array[Float64]) -> None:
 
 ```text
 docs/spec.md              Draft language specification
-postyp.py                 Type vocabulary and annotations
-postpython/checker.py     Structural subset checker
-postpython/compiler/      AST frontend, IR, and C backend
-postpython/ufunc.py       @vectorize and @guvectorize runtime wrappers
-postpython/build.py       POST Python to C99 to shared-library build helper
-postpython/math.py        Typed scalar math wrappers
-examples/                 Example POST Python source files
+postyp-dist/postyp.py     Type vocabulary (published separately as `postyp`)
+post_py/checker.py     Structural subset checker
+post_py/compiler/      AST frontend, IR, and C backend
+post_py/ufunc.py       @vectorize and @guvectorize runtime wrappers
+post_py/build.py       Post-Py to C99 to shared-library build helper
+post_py/math.py        Typed scalar math wrappers
+examples/                 Example Post-Py source files
 tests/                    Reference test suite
 ```
 
 ## Installation
 
-PostPython ships as a regular Python package and can be installed with either
+Post-Py ships as a regular Python package and can be installed with either
 `pip` or [pixi](https://pixi.sh/). Both paths install two importable units:
-the `postpython` package and the `postyp` type module.
+the `post_py` package and the `postyp` type module.
 
 A working C compiler (`cc`, `clang`, or `gcc`) is required to compile POST
 Python sources to native code. The pixi environment installs one for you;
@@ -102,11 +102,20 @@ under pip you need a system compiler.
 
 ### With pip
 
-Install the latest release from a local checkout (a future release will be
-published to PyPI):
+```bash
+python -m pip install post-py
+```
+
+The distribution is named `post-py` (the `postpython` and `postpy` names
+on PyPI belong to unrelated projects). The standard's import names are
+`post_py` and `postyp`. The type vocabulary
+is published separately as [`postyp`](https://pypi.org/project/postyp/)
+and installed automatically as a dependency.
+
+From a local checkout:
 
 ```bash
-python -m pip install .
+python -m pip install ./postyp-dist .
 ```
 
 For development — including `pytest`, `numpy`, and `narwhals` — install the
@@ -126,7 +135,7 @@ pytest
 
 `pyproject.toml` contains a `[tool.pixi]` workspace. Pixi resolves
 conda-forge dependencies (Python, NumPy, narwhals, a C compiler) and installs
-PostPython itself as an editable PyPI package, so any source changes are
+Post-Py itself as an editable PyPI package, so any source changes are
 picked up immediately.
 
 ```bash
@@ -138,7 +147,7 @@ Run a defined task:
 
 ```bash
 pixi run -e dev test                # pytest tests/
-pixi run -e dev check FILE.py       # postpython-check on a source file
+pixi run -e dev check FILE.py       # post-py check on a source file
 pixi run -e dev build-example       # python examples/build_shared_lib.py
 ```
 
@@ -160,7 +169,7 @@ python examples/build_shared_lib.py
 Or call the build helper directly:
 
 ```python
-from postpython.build import build_file
+from post_py.build import build_file
 
 lib_path = build_file("examples/gaussian.py")
 print(lib_path)
@@ -168,7 +177,7 @@ print(lib_path)
 
 ## Design Highlights
 
-- **Python syntax, static subset:** POST Python files remain `.py` files, but
+- **Python syntax, static subset:** Post-Py files remain `.py` files, but
   unsupported dynamic constructs are rejected by the checker or compiler.
 - **Typed native values:** scalar types such as `Float64`, `Int64`, and `Bool`
   are fixed-width native dtypes.
@@ -199,7 +208,7 @@ compiler behavior. Good contributions include:
 
 - Tightening the specification.
 - Adding conformance tests.
-- Improving diagnostics for unsupported-but-valid POST Python features.
+- Improving diagnostics for unsupported-but-valid Post-Py features.
 - Expanding array layout and ABI coverage.
 - Building out examples that stress native-code lowering.
 - Comparing behavior against existing compiled Python tools.

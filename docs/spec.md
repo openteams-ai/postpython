@@ -1,4 +1,4 @@
-# POST Python Language Specification
+# Post-Py Language Specification
 
 **Version:** 0.2 (draft)
 **Status:** Work in progress
@@ -7,20 +7,20 @@
 
 ## 1. Overview
 
-POST Python (Performance Optimized Statically Typed Python) is a defined subset of the Python language with mandatory type annotations that enables ahead-of-time (AOT) compilation to native executables and shared libraries.  A POST Python source file is valid Python; it can be run under the standard CPython interpreter without modification.  A conforming compiler additionally translates it to native code without requiring the Python runtime.
+Post-Py (Performance Optimized Statically Typed Python) is a defined subset of the Python language with mandatory type annotations that enables ahead-of-time (AOT) compilation to native executables and shared libraries.  A Post-Py source file is valid Python; it can be run under the standard CPython interpreter without modification.  A conforming compiler additionally translates it to native code without requiring the Python runtime.
 
 ### 1.1 Design Contract
 
-POST Python is designed to be:
+Post-Py is designed to be:
 
-- **Syntactically Python** — POST Python source files are valid `.py` files and should remain usable in interpreted compatibility mode.
+- **Syntactically Python** — Post-Py source files are valid `.py` files and should remain usable in interpreted compatibility mode.
 - **Statically typed at boundaries** — function and method boundaries are fully annotated; local types may be inferred.
 - **Native-code first** — compiled output uses native memory layouts and does not depend on the CPython object model unless explicitly crossing the CPython boundary.
 - **Array and dataframe first** — arrays, series, and dataframes are part of the standard language model, not optional foreign-library objects.
 - **Smaller than Python** — dynamic language features that prevent portable AOT compilation are excluded.
 - **Extensible by design** — accelerator, SIMD, dataframe, and domain-specific compilers can extend the base language through typed, compiler-visible APIs.
 
-Where CPython behavior conflicts with fixed-width native types, deterministic memory management, or explicitly specified POST Python semantics, this specification governs compiled behavior.  Interpreted compatibility mode should remain as close to CPython behavior as practical while preserving the same type and subset guarantees.
+Where CPython behavior conflicts with fixed-width native types, deterministic memory management, or explicitly specified Post-Py semantics, this specification governs compiled behavior.  Interpreted compatibility mode should remain as close to CPython behavior as practical while preserving the same type and subset guarantees.
 
 ### 1.2 Goals
 
@@ -41,12 +41,12 @@ Where CPython behavior conflicts with fixed-width native types, deterministic me
 
 ## 2. Conformance
 
-A **POST Python source file** is a `.py` file that:
+A **Post-Py source file** is a `.py` file that:
 
 1. Is parseable by the CPython `ast` module with `type_comments=True`.
-2. Passes the POST Python structural checker (Section 5) with zero structural violations.
+2. Passes the Post-Py structural checker (Section 5) with zero structural violations.
 3. Carries complete type annotations at every function boundary (Section 6).
-4. Uses only annotations, operations, and standard-library features defined by this specification or by an explicitly enabled POST Python extension.
+4. Uses only annotations, operations, and standard-library features defined by this specification or by an explicitly enabled Post-Py extension.
 
 Conformance is intentionally modular.  A compiler may claim conformance to one or more named profiles:
 
@@ -62,12 +62,12 @@ Conformance is intentionally modular.  A compiler may claim conformance to one o
 A compiler that does not implement an optional profile must reject code requiring that profile with a clear diagnostic rather than silently changing semantics.
 
 A **conforming compiler** is a tool that:
-1. Accepts POST Python source files for the conformance profile(s) it claims.
+1. Accepts Post-Py source files for the conformance profile(s) it claims.
 2. Produces native object code, shared libraries, executables, or CPython extension modules with semantics defined by this specification.
 3. Does not require the CPython runtime to be present in the final binary except in CPython extension builds or when explicitly crossing the CPython heap boundary.
-4. Rejects unsupported valid POST Python features with an implementation-support diagnostic, rather than accepting and dropping or rewriting behavior.
+4. Rejects unsupported valid Post-Py features with an implementation-support diagnostic, rather than accepting and dropping or rewriting behavior.
 
-A **conforming interpreter** is a tool that accepts POST Python source files and executes them with CPython-compatible behavior where possible, while enforcing the same POST Python type, subset, and profile guarantees as a conforming compiler.
+A **conforming interpreter** is a tool that accepts Post-Py source files and executes them with CPython-compatible behavior where possible, while enforcing the same Post-Py type, subset, and profile guarantees as a conforming compiler.
 
 Existing tools (Cython, mypyc, Numba, Codon, Pythran, taichi-lang, etc.) are encouraged to implement this standard and claim conformance for the profiles they support.
 
@@ -79,9 +79,9 @@ The prose specification is normative.  The reference checker, reference compiler
 
 - Encoding: UTF-8.
 - File extension: `.py` (same as Python; no new extension is introduced).
-- A POST Python file must be parseable by the CPython `ast` module with `type_comments=True`.
-- The first-party checker (`postpython-check`) is the normative structural checker for the reference implementation.  Full conformance also requires type, semantic, memory, and profile-specific validation.
-- Top-level executable statements are implementation-defined in v0.1 except for imports, type aliases, constant definitions, class definitions, and function definitions.  Portable POST Python packages should put executable logic behind typed functions.
+- A Post-Py file must be parseable by the CPython `ast` module with `type_comments=True`.
+- The first-party checker (`post-py check`) is the normative structural checker for the reference implementation.  Full conformance also requires type, semantic, memory, and profile-specific validation.
+- Top-level executable statements are implementation-defined in v0.1 except for imports, type aliases, constant definitions, class definitions, and function definitions.  Portable Post-Py packages should put executable logic behind typed functions.
 
 ---
 
@@ -89,7 +89,7 @@ The prose specification is normative.  The reference checker, reference compiler
 
 ### 4.1 Scalar Dtypes
 
-POST Python defines the following scalar types in `postyp`, which mirror the array-api dtype specification:
+Post-Py defines the following scalar types in `postyp`, which mirror the array-api dtype specification:
 
 | Name         | Kind    | Width | Notes                              |
 |--------------|---------|-------|------------------------------------|
@@ -110,9 +110,9 @@ POST Python defines the following scalar types in `postyp`, which mirror the arr
 | `Str`        | text    | var   | Immutable UTF-8 string             |
 | `Bytes`      | bytes   | var   | Immutable byte sequence            |
 
-Python built-in types map to POST Python types as follows:
+Python built-in types map to Post-Py types as follows:
 
-| Python  | POST Python |
+| Python  | Post-Py |
 |---------|-------------|
 | `bool`  | `Bool`      |
 | `int`   | `Int64`     |
@@ -125,7 +125,7 @@ A conforming compiler must respect IEEE 754 semantics for all floating-point ope
 
 ### 4.1.1 Numeric Semantics
 
-POST Python numeric types are fixed-width native scalar types.  They do not inherit Python's arbitrary-precision `int` semantics in compiled mode.
+Post-Py numeric types are fixed-width native scalar types.  They do not inherit Python's arbitrary-precision `int` semantics in compiled mode.
 
 Unless otherwise specified by a future profile:
 
@@ -133,7 +133,7 @@ Unless otherwise specified by a future profile:
 - Debug builds must diagnose integer overflow where practical; release builds may use the target platform's native overflow behavior, but compilers must document whether they wrap, trap, or assume no overflow for optimization.
 - Floating-point operations follow IEEE 754 for the declared width.  Compilers must not enable transformations that violate required IEEE behavior unless the user explicitly enables a non-conforming fast-math mode.
 - `NaN`, infinities, and signed zero follow IEEE comparison and arithmetic behavior.
-- Integer division, floor division, and remainder must be specified by the POST Python arithmetic rules for the operand dtypes.  Until those rules are finalized, portable code should avoid relying on edge cases involving negative integer `//` and `%`.
+- Integer division, floor division, and remainder must be specified by the Post-Py arithmetic rules for the operand dtypes.  Until those rules are finalized, portable code should avoid relying on edge cases involving negative integer `//` and `%`.
 - Numeric casts must be explicit when they may lose precision, change signedness, or narrow width.  Debug builds should diagnose out-of-range narrowing casts where practical.
 - Scalar promotion rules are part of the type system and must be consistent across scalar expressions, array expressions, and vectorized kernels.
 
@@ -219,7 +219,7 @@ The POST DataFrame profile should define a portable dataframe algebra.  The init
 
 ### 4.4 Aggregate Types
 
-`dataclass`-decorated classes with fully annotated fields are valid POST Python aggregate types.  They compile to structs.  Inheritance from exactly one base is permitted; multiple inheritance is not (Section 5.2, PP010).
+`dataclass`-decorated classes with fully annotated fields are valid Post-Py aggregate types.  They compile to structs.  Inheritance from exactly one base is permitted; multiple inheritance is not (Section 5.2, PP010).
 
 ```python
 from dataclasses import dataclass
@@ -247,7 +247,7 @@ Inferred types do not need annotation.  Type annotations at function boundaries 
 
 ### 5.1 Permitted Constructs
 
-The following constructs are in the POST Python subset:
+The following constructs are in the Post-Py subset:
 
 - Module-level `import` and `from … import` (absolute only)
 - `def` with fully annotated signatures
@@ -269,7 +269,7 @@ The following constructs are in the POST Python subset:
 
 ### 5.2 Disqualified Constructs
 
-The following constructs are outside the compilable subset.  The POST Python checker emits the listed violation code for each:
+The following constructs are outside the compilable subset.  The Post-Py checker emits the listed violation code for each:
 
 | Code  | Construct                                      |
 |-------|------------------------------------------------|
@@ -351,18 +351,18 @@ schema    ::= "{" str ":" dtype ("," str ":" dtype)* "}"
 
 ### 7.1 Two Heaps
 
-POST Python recognises two distinct memory regions:
+Post-Py recognises two distinct memory regions:
 
 | Heap           | Owner              | Lifetime              | Management          |
 |----------------|--------------------|-----------------------|---------------------|
-| **POST Python heap** | POST Python runtime | RAII / scope-bound  | Deterministic free  |
+| **Post-Py heap** | Post-Py runtime | RAII / scope-bound  | Deterministic free  |
 | **CPython heap**     | CPython interpreter | Reference-counted   | CPython GC          |
 
-RAII applies **only** to objects allocated on the POST Python heap.  CPython-owned objects are accessed through typed handles that respect CPython's reference counting protocol; they are never freed by POST Python code directly.
+RAII applies **only** to objects allocated on the Post-Py heap.  CPython-owned objects are accessed through typed handles that respect CPython's reference counting protocol; they are never freed by Post-Py code directly.
 
 ### 7.2 RAII (Resource Acquisition Is Initialization)
 
-POST Python heap objects use deterministic, scope-based lifetime.  Every POST Python-owned value's storage is released when the owning scope exits.  There is no garbage collector for POST Python heap objects.
+Post-Py heap objects use deterministic, scope-based lifetime.  Every Post-Py-owned value's storage is released when the owning scope exits.  There is no garbage collector for Post-Py heap objects.
 
 - Array and aggregate allocations are freed when the binding goes out of scope.
 - `with` blocks implement RAII for external resources.
@@ -370,13 +370,13 @@ POST Python heap objects use deterministic, scope-based lifetime.  Every POST Py
 
 ### 7.3 Ownership
 
-Each POST Python heap value has exactly one owner at any point in time.  Ownership transfers on assignment across scope boundaries (function calls, return).  Shared read-only access is permitted.
+Each Post-Py heap value has exactly one owner at any point in time.  Ownership transfers on assignment across scope boundaries (function calls, return).  Shared read-only access is permitted.
 
 Compilers may implement ownership transfer as move semantics (zero-copy) for arrays and aggregates.  The reference compiler uses reference-counted handles at scope boundaries; future optimization passes may elide the count updates.
 
 ### 7.4 Single-Writer Concurrency
 
-POST Python's threading model:
+Post-Py's threading model:
 
 - **Multiple readers, one writer**: a value may be read concurrently by any number of threads, but at most one thread holds write access at any time.
 - Write access is acquired implicitly when a mutable binding is created in a thread's scope.
@@ -387,35 +387,35 @@ The reference compiler enforces single-writer as a runtime assertion in debug bu
 
 ### 7.5 CPython Heap Boundary
 
-POST Python code may need to read CPython-owned objects — for example, an interpreted-mode dataframe backend, an object passed in from a CPython extension caller, or a Python object explicitly accessed through a borrow handle.  The rules are:
+Post-Py code may need to read CPython-owned objects — for example, an interpreted-mode dataframe backend, an object passed in from a CPython extension caller, or a Python object explicitly accessed through a borrow handle.  The rules are:
 
-**Reading CPython objects (POST Python → CPython direction)**
+**Reading CPython objects (Post-Py → CPython direction)**
 
-POST Python code may read CPython-owned objects through typed *borrow handles*.  A borrow handle:
+Post-Py code may read CPython-owned objects through typed *borrow handles*.  A borrow handle:
 - Does not transfer ownership.
 - Increments the CPython refcount on acquisition and decrements it on release (RAII-managed).
 - Is read-only by default; write access requires an explicit `mut_borrow()` and is only safe when the caller guarantees exclusive access (checked in debug builds).
 
 **Writing CPython objects**
 
-POST Python may write into CPython-owned mutable containers (lists, arrays, DataFrames) via borrow handles.  Structural mutation (resizing, type change) is not permitted through a borrow handle.
+Post-Py may write into CPython-owned mutable containers (lists, arrays, DataFrames) via borrow handles.  Structural mutation (resizing, type change) is not permitted through a borrow handle.
 
-**Passing POST Python objects to CPython (POST Python → CPython direction)**
+**Passing Post-Py objects to CPython (Post-Py → CPython direction)**
 
-When a POST Python value must be passed to a CPython-callable (e.g. a Python function argument), the compiler wraps it in a CPython object:
-- The POST Python value's lifetime is extended until the CPython object's refcount drops to zero.
+When a Post-Py value must be passed to a CPython-callable (e.g. a Python function argument), the compiler wraps it in a CPython object:
+- The Post-Py value's lifetime is extended until the CPython object's refcount drops to zero.
 - Compilers may use a zero-copy path for types that map directly to buffer-protocol objects (e.g. `Array[Float64]` → `numpy.ndarray`).
 
 **Returning CPython objects from CPython calls**
 
-When CPython returns an object to POST Python code, the compiler inserts a typed unwrap thunk.  If the runtime type does not match the annotation, a `TypeError` is raised (this is the only place runtime type checking occurs in POST Python).
+When CPython returns an object to Post-Py code, the compiler inserts a typed unwrap thunk.  If the runtime type does not match the annotation, a `TypeError` is raised (this is the only place runtime type checking occurs in Post-Py).
 
 **Extension module build mode**
 
-When compiling a CPython extension module (`--ext-module`), POST Python code runs *inside* CPython's interpreter loop.  In this mode:
-- The POST Python heap still uses RAII.
+When compiling a CPython extension module (`--ext-module`), Post-Py code runs *inside* CPython's interpreter loop.  In this mode:
+- The Post-Py heap still uses RAII.
 - CPython heap objects are accessed via the standard C API (`PyObject*`), managed with `Py_INCREF`/`Py_DECREF` wrappers generated by the compiler.
-- The GIL is released automatically around POST Python-heap-only operations (pure numeric kernels, vectorized inner loops) and reacquired before any CPython API call.
+- The GIL is released automatically around Post-Py-heap-only operations (pure numeric kernels, vectorized inner loops) and reacquired before any CPython API call.
 
 ---
 
@@ -423,17 +423,17 @@ When compiling a CPython extension module (`--ext-module`), POST Python code run
 
 ### 8.1 Overview
 
-POST Python adopts Numba's public decorator model for NumPy-compatible ufuncs:
+Post-Py adopts Numba's public decorator model for NumPy-compatible ufuncs:
 
 - `@vectorize` defines an element-wise scalar kernel.  The user function receives scalar values and returns one scalar value.  The compiler supplies the broadcast loop.
 - `@guvectorize` defines a generalized ufunc kernel.  The user function receives scalar values and/or core array views, and writes results through trailing output array parameters.
 
-The decorators may be imported from `postpython` or `postpython.ufunc`.
+The decorators may be imported from `post_py` or `post_py.ufunc`.
 
 Scalar element-wise example:
 
 ```python
-from postpython import vectorize
+from post_py import vectorize
 from postyp import Float64
 
 @vectorize(["float64(float64, float64)"], target="cpu")
@@ -444,7 +444,7 @@ def add(x: Float64, y: Float64) -> Float64:
 Generalized ufunc example:
 
 ```python
-from postpython import guvectorize
+from post_py import guvectorize
 from postyp import Array, Float64
 
 @guvectorize([], "(n),(n)->()")
@@ -465,7 +465,7 @@ def dot(a: Array[Float64], b: Array[Float64], out: Array[Float64]) -> None:
 @vectorize([type_signature, ...], target="cpu", nopython=True)
 ```
 
-The concrete type signature list follows Numba's convention.  POST Python annotations remain normative; the signature list is used for compatibility, dispatch metadata, and future multi-specialization support.  A `@vectorize` function must have scalar parameters and a scalar return annotation.  Its implicit layout signature is `(),...->()`.
+The concrete type signature list follows Numba's convention.  Post-Py annotations remain normative; the signature list is used for compatibility, dispatch metadata, and future multi-specialization support.  A `@vectorize` function must have scalar parameters and a scalar return annotation.  Its implicit layout signature is `(),...->()`.
 
 `@guvectorize` accepts the following forms:
 
@@ -533,7 +533,7 @@ The compiler emits the outer broadcast loop and maps each array argument to the 
 
 ### 8.6 Interpreted Mode
 
-When a POST Python source file is run under the standard interpreter (not compiled), `@vectorize` and `@guvectorize` wrap the function in a Python-level broadcast loop.  If NumPy is available, it uses NumPy arrays and broadcasting semantics.  The function remains callable and testable without compilation.
+When a Post-Py source file is run under the standard interpreter (not compiled), `@vectorize` and `@guvectorize` wrap the function in a Python-level broadcast loop.  If NumPy is available, it uses NumPy arrays and broadcasting semantics.  The function remains callable and testable without compilation.
 
 ---
 
@@ -541,15 +541,15 @@ When a POST Python source file is run under the standard interpreter (not compil
 
 ### 9.1 Translation Units
 
-A POST Python translation unit is a single `.py` source file.  A **package** is a directory of translation units with an `__init__.py`.  The compiler processes one translation unit at a time and produces one object file (`.o`) per translation unit.
+A Post-Py translation unit is a single `.py` source file.  A **package** is a directory of translation units with an `__init__.py`.  The compiler processes one translation unit at a time and produces one object file (`.o`) per translation unit.
 
 Module imports have three roles:
 
-- **Compile-time imports** provide POST Python types, decorators, constants, and functions visible to the compiler.
-- **POST module imports** refer to other POST Python translation units that are type-checked and linked into the output artifact.
+- **Compile-time imports** provide Post-Py types, decorators, constants, and functions visible to the compiler.
+- **POST module imports** refer to other Post-Py translation units that are type-checked and linked into the output artifact.
 - **CPython boundary imports** refer to Python modules used only in interpreted mode or through explicit CPython heap-boundary handles.
 
-Portable POST Python code should make CPython boundary crossings explicit.  A compiler must not silently compile a call to an arbitrary imported Python function as native POST code unless that function is available as a checked POST translation unit or as a declared foreign function.
+Portable Post-Py code should make CPython boundary crossings explicit.  A compiler must not silently compile a call to an arbitrary imported Python function as native POST code unless that function is available as a checked POST translation unit or as a declared foreign function.
 
 Public symbols are top-level functions, dataclasses, type aliases, and constants not prefixed with `_`.  Private (underscore-prefixed) functions have internal linkage: they are not visible outside their translation unit and cannot be called from other POST modules.
 
@@ -628,12 +628,12 @@ The reference compiler emits C99 as its intermediate output, then invokes the sy
 
 ## 10. Standard Library
 
-POST Python's standard library consists of:
+Post-Py's standard library consists of:
 
 1. **`postyp`** — the type vocabulary (scalar dtypes, `Array`, `DataFrame`, `Series`, `Shape`).
-2. **`postpython` / `postpython.ufunc`** — the `@vectorize` and `@guvectorize` decorators and signature utilities.
-3. **`postpython.math`** — scalar math functions (`sqrt`, `sin`, `cos`, `exp`, `log`, …), lowered to `libm`.
-4. **`postpython.mem`** — explicit memory utilities (`alloc`, `free`, `share`) for advanced use.
+2. **`post_py` / `post_py.ufunc`** — the `@vectorize` and `@guvectorize` decorators and signature utilities.
+3. **`post_py.math`** — scalar math functions (`sqrt`, `sin`, `cos`, `exp`, `log`, …), lowered to `libm`.
+4. **`post_py.mem`** — explicit memory utilities (`alloc`, `free`, `share`) for advanced use.
 
 The standard library does not include I/O, networking, or threading primitives; those are accessed through the CPython boundary.
 
@@ -641,7 +641,7 @@ The standard library does not include I/O, networking, or threading primitives; 
 
 ## 11. Extension Model
 
-POST Python is intended to support multiple compiler implementations and domain-specific extensions such as Triton-like GPU kernels, Helion-like tensor kernels, SIMD kernels, distributed compute, and dataframe query engines.
+Post-Py is intended to support multiple compiler implementations and domain-specific extensions such as Triton-like GPU kernels, Helion-like tensor kernels, SIMD kernels, distributed compute, and dataframe query engines.
 
 An extension profile may add:
 
@@ -687,7 +687,7 @@ See Section 5.2 for the current structural table.  Diagnostic ranges are reserve
 | PP300–PP399 | Array, shape, and broadcasting errors |
 | PP400–PP499 | DataFrame, Series, schema, and query-plan errors |
 | PP500–PP599 | ABI, module, linking, and build errors |
-| PP900–PP999 | Implementation-defined or unsupported valid POST Python features |
+| PP900–PP999 | Implementation-defined or unsupported valid Post-Py features |
 
 Assigned module and linking codes (Section 9.1):
 

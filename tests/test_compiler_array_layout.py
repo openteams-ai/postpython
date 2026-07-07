@@ -1,8 +1,8 @@
 """Compiler tests for POST Array layout metadata."""
 
-from postpython.compiler.frontend import compile_source
-from postpython.compiler.backend.c_backend import emit_module
-from postpython.compiler.ir import ArrayLoad, ArrayStride, BinOp, BinOpInstr, Const
+from post_py.compiler.frontend import compile_source
+from post_py.compiler.backend.c_backend import emit_module
+from post_py.compiler.ir import ArrayLoad, ArrayStride, BinOp, BinOpInstr, Const
 from postyp import COrder, FOrder, Strides
 
 

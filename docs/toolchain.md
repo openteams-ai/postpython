@@ -1,10 +1,10 @@
 # Toolchain & C ABI
 
-## The `postpython` CLI
+## The `post-py` CLI
 
 ```
-postpython check FILE...          structural subset checking
-postpython build FILE [options]   compile to native artifacts
+post-py check FILE...          structural subset checking
+post-py build FILE [options]   compile to native artifacts
 ```
 
 Build options:
@@ -21,7 +21,7 @@ Build options:
 | `--cc`, `--cflags`, `--keep-c` | toolchain control |
 
 The same pipeline is available as a Python API:
-`postpython.build.build_file` / `build_source`.
+`post_py.build.build_file` / `build_source`.
 
 ## What a build does
 

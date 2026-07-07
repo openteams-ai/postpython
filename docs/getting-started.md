@@ -15,23 +15,32 @@ pixi run -e dev test        # 360 tests, including end-to-end native builds
 With pip (bring your own `cc`):
 
 ```bash
-python -m pip install -e ".[dev]"
+python -m pip install post-py        # from PyPI
+```
+
+or from a checkout:
+
+```bash
+python -m pip install ./postyp-dist -e ".[dev]"
 pytest
 ```
 
-Both paths install the `postpython` package, the `postyp` type
-vocabulary, and the `postpython` CLI.
+(The PyPI distribution is named `post-py`; the import names are the
+standard's `post_py` and `postyp`.)
+
+Both paths install the `post_py` package, the `postyp` type
+vocabulary, and the `post-py` CLI.
 
 ## Write a kernel
 
-POST Python is ordinary Python with complete type annotations at function
+Post-Py is ordinary Python with complete type annotations at function
 boundaries (the checker enforces this):
 
 ```python
 # kernels.py
 from postyp import Array, Float64
-from postpython import vectorize, guvectorize
-from postpython.math import exp
+from post_py import vectorize, guvectorize
+from post_py.math import exp
 
 HALF: Float64 = 0.5          # module constants fold at compile time
 
@@ -66,7 +75,7 @@ array([ 6., 22., 38.])
 ## Check conformance
 
 ```bash
-postpython check kernels.py
+post-py check kernels.py
 ```
 
 Violations of the compilable subset are reported with `PP`-prefixed
@@ -77,7 +86,7 @@ diagnostic codes defined by the [specification](spec.md).
 **A shared library with a stable C ABI:**
 
 ```bash
-postpython build kernels.py --emit-header --emit-manifest
+post-py build kernels.py --emit-header --emit-manifest
 ```
 
 produces `kernels.dylib`/`.so` (plus `kernels.h` and `kernels.json`)
@@ -95,7 +104,7 @@ or ctypes:
 **A NumPy ufunc extension module:**
 
 ```bash
-postpython build kernels.py --ext-module
+post-py build kernels.py --ext-module
 ```
 
 ```python
@@ -108,9 +117,9 @@ postpython build kernels.py --ext-module
 **The package-manager layout** (what a conda/nix recipe calls):
 
 ```bash
-postpython build mypkg/__init__.py --prefix $PREFIX
+post-py build mypkg/__init__.py --prefix $PREFIX
 # → $PREFIX/lib/libmypkg.so, $PREFIX/include/mypkg.h,
-#   $PREFIX/share/postpython/mypkg.json
+#   $PREFIX/share/post-py/mypkg.json
 ```
 
 ## Multi-module programs
@@ -121,7 +130,7 @@ one module calls the *compiled* `erfc` from the other, never a
 same-named libm symbol:
 
 ```bash
-postpython build mypkg/__init__.py    # compiles the whole package
+post-py build mypkg/__init__.py    # compiles the whole package
 ```
 
 ## Learn the language
@@ -131,4 +140,4 @@ system (§4), the permitted subset (§5), the memory model (§7),
 vectorized functions (§8), and the compilation model (§9). For a large
 worked example, read
 [ppspecial](https://github.com/openteams-ai/ppspecial) — 26 special
-functions written entirely in POST Python.
+functions written entirely in Post-Py.

@@ -9,7 +9,7 @@ import shutil
 
 import pytest
 
-from postpython.build import build_source
+from post_py.build import build_source
 
 cc = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
 needs_cc = pytest.mark.skipif(cc is None, reason="No C compiler available")
@@ -219,7 +219,7 @@ def test_walrus_assigns_and_returns_value():
 
 _DOT_SOURCE = (
     "from postyp import Array, Float64\n"
-    "from postpython import guvectorize\n"
+    "from post_py import guvectorize\n"
     "\n"
     "@guvectorize([], \"(n),(n)->()\")\n"
     "def dot(a: Array[Float64], b: Array[Float64], out: Array[Float64]) -> None:\n"

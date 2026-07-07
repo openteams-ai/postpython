@@ -1,7 +1,7 @@
-"""AST-based subset checker for POST Python.
+"""AST-based subset checker for Post-Py.
 
 Walks a Python AST and reports constructs that fall outside the
-compilable subset.  A file with zero violations is a valid POST Python
+compilable subset.  A file with zero violations is a valid Post-Py
 source unit.
 """
 
@@ -48,7 +48,7 @@ _BANNED_BUILTINS: frozenset[str] = frozenset({
 
 #: Calls to these names are disqualified when used dynamically.
 #: (Static forms like getattr(obj, "known_name") are still banned —
-#:  POST Python uses direct attribute access instead.)
+#:  Post-Py uses direct attribute access instead.)
 _BANNED_REFLECTION: frozenset[str] = frozenset({
     "getattr",
     "setattr",
@@ -62,7 +62,7 @@ _BANNED_REFLECTION: frozenset[str] = frozenset({
 # ---------------------------------------------------------------------------
 
 class _Checker(ast.NodeVisitor):
-    """Collect POST Python violations from an AST."""
+    """Collect Post-Py violations from an AST."""
 
     def __init__(self, filename: str = "<unknown>") -> None:
         self.filename = filename
@@ -139,7 +139,7 @@ class _Checker(ast.NodeVisitor):
     # -- async / coroutines --------------------------------------------------
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-        self._add(node, "PP011", f"`async def {node.name}` is not allowed in POST Python v1 subset")
+        self._add(node, "PP011", f"`async def {node.name}` is not allowed in Post-Py v1 subset")
         self.generic_visit(node)
 
     def visit_Await(self, node: ast.Await) -> None:
@@ -232,7 +232,7 @@ class _Checker(ast.NodeVisitor):
 # ---------------------------------------------------------------------------
 
 def check_source(source: str, filename: str = "<unknown>") -> list[Violation]:
-    """Parse *source* and return all POST Python violations."""
+    """Parse *source* and return all Post-Py violations."""
     try:
         tree = ast.parse(source, filename=filename, type_comments=True)
     except SyntaxError as exc:
@@ -249,13 +249,13 @@ def check_source(source: str, filename: str = "<unknown>") -> list[Violation]:
 
 
 def check_file(path: str | Path) -> list[Violation]:
-    """Read *path* and return all POST Python violations."""
+    """Read *path* and return all Post-Py violations."""
     path = Path(path)
     return check_source(path.read_text(encoding="utf-8"), filename=str(path))
 
 
 def is_valid(source: str, filename: str = "<unknown>") -> bool:
-    """Return True if *source* has no POST Python violations."""
+    """Return True if *source* has no Post-Py violations."""
     return len(check_source(source, filename)) == 0
 
 
@@ -267,8 +267,8 @@ def _main(argv: Sequence[str] | None = None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(
-        prog="postpython-check",
-        description="Check whether Python source files conform to the POST Python subset.",
+        prog="post-py check",
+        description="Check whether Python source files conform to the Post-Py subset.",
     )
     parser.add_argument("files", nargs="+", metavar="FILE", help="source files to check")
     args = parser.parse_args(argv)

@@ -5,9 +5,9 @@ build-backend = "hatchling.build"
 # ─── Project metadata ────────────────────────────────────────────────────────
 
 [project]
-name = "postpython"
+name = "post-py"
 version = "0.2.0"
-description = "Reference implementation for POST Python — Performance Optimized Statically Typed Python."
+description = "Post-Py reference compiler and toolchain (import name: post_py)."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Travis E. Oliphant" }]
@@ -24,7 +24,7 @@ classifiers = [
     "Topic :: Software Development :: Compilers",
     "Topic :: Scientific/Engineering",
 ]
-dependencies = []
+dependencies = ["postyp>=0.2.0"]
 
 [project.optional-dependencies]
 numpy = ["numpy"]
@@ -33,10 +33,10 @@ dev = ["pytest>=7", "numpy", "narwhals"]
 docs = ["mkdocs-material"]
 
 [project.scripts]
-postpython = "postpython.cli:main"
-postpython-check = "postpython.checker:_main"
+post-py = "post_py.cli:main"
 
 [project.urls]
+Website = "https://post-py.org/"
 Repository = "https://github.com/openteams-ai/postpython"
 Specification = "https://github.com/openteams-ai/postpython/blob/main/docs/spec.md"
 
@@ -45,15 +45,11 @@ Specification = "https://github.com/openteams-ai/postpython/blob/main/docs/spec.
 # module at the top level. Hatchling needs both told explicitly.
 
 [tool.hatch.build.targets.wheel]
-packages = ["postpython"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"postyp.py" = "postyp.py"
+packages = ["post_py"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "postpython",
-    "postyp.py",
+    "post_py",
     "docs",
     "examples",
     "tests",
@@ -71,11 +67,12 @@ channels = ["conda-forge"]
 platforms = ["osx-arm64", "osx-64", "linux-64", "linux-aarch64", "win-64"]
 
 [tool.pixi.pypi-dependencies]
-postpython = { path = ".", editable = true }
+post-py = { path = ".", editable = true }
+postyp = { path = "postyp-dist" }
 
 [tool.pixi.dependencies]
 python = ">=3.10"
-# A C compiler is required to build POST Python sources to native code.
+# A C compiler is required to build Post-Py sources to native code.
 c-compiler = "*"
 
 [tool.pixi.feature.docs.pypi-dependencies]
@@ -93,7 +90,7 @@ docs = { features = ["docs"], solve-group = "default" }
 
 [tool.pixi.tasks]
 test = { cmd = "pytest tests/", description = "Run the test suite." }
-check = { cmd = "postpython-check", description = "Run the POST Python structural checker." }
+check = { cmd = "post-py check", description = "Run the Post-Py structural checker." }
 build-example = { cmd = "python examples/build_shared_lib.py", description = "Build the example shared library." }
 docs-serve = { cmd = "mkdocs serve", description = "Serve the website locally with live reload." }
 docs-build = { cmd = "mkdocs build --strict", description = "Build the website into site/." }
