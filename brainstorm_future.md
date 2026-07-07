@@ -81,8 +81,22 @@ spec, or inevitable the moment the next pp* package starts.
 12. **A tracked benchmark suite.** postpyc vs Numba vs Cython vs
     hand-written C on the ppspecial kernels, run in CI and published on
     the site. Honest numbers (including the known ~1% cross-TU cost
-    from parked #13) are the credibility currency for everything else
-    here.
+    from parked issue #13) are the credibility currency for everything
+    else here.
+
+13. **Whole-array expressions.** `c = a * b + 1.0` on `Array` operands
+    lowering to fused loops — the first step of POST Array beyond
+    per-element kernels, and the gateway to shape-checked array code.
+
+14. **Foreign function declarations.** A typed way to declare external C
+    symbols from POST source (compile-time ctypes, checked against the
+    header). This is how pplinalg binds BLAS/LAPACK without leaving the
+    language — and it forces a healthy spec question: which externals
+    are portable.
+
+15. **Windows/MSVC support.** `win-64` is already in the pixi platforms
+    list; the backend emits C99 that MSVC mostly accepts. CI matrix
+    entry, `cl.exe` flag handling, DLL export conventions.
 
 ---
 
@@ -90,34 +104,20 @@ spec, or inevitable the moment the next pp* package starts.
 
 Natural extensions once Tier 1 exists. No hard blockers, real payoff.
 
-13. **Windows/MSVC support.** `win-64` is already in the pixi platforms
-    list; the backend emits C99 that MSVC mostly accepts. CI matrix
-    entry, `cl.exe` flag handling, DLL export conventions.
-
-14. **Executable output.** Spec §9.3–9.4 already name it: a `main()`
+16. **Executable output.** Spec §9.3–9.4 already name it: a `main()`
     entry convention and `postpyc build --exe` producing a standalone
     binary with no Python runtime. The "smaller than Python" promise
     made tangible for CLI tools.
 
-15. **Local array allocation and `postpyc.mem`.** Stack and heap arrays
+17. **Local array allocation and `postpyc.mem`.** Stack and heap arrays
     created *inside* kernels with RAII lifetimes (§7.2), plus the
     spec-listed `alloc`/`free`/`share`. Integrators and optimizers need
     scratch workspaces; today all arrays cross the boundary.
 
-16. **Whole-array expressions.** `c = a * b + 1.0` on `Array` operands
-    lowering to fused loops — the first step of POST Array beyond
-    per-element kernels, and the gateway to shape-checked array code.
-
-17. **Parallel ufunc execution.** The §7.4 single-writer model makes
+18. **Parallel ufunc execution.** The §7.4 single-writer model makes
     outer-loop parallelism safe by construction: `@vectorize(parallel=True)`
     over OpenMP or a small thread pool. Numba's most-loved flag,
     reproduced with spec-backed semantics.
-
-18. **Foreign function declarations.** A typed way to declare external C
-    symbols from POST source (compile-time ctypes, checked against the
-    header). This is how pplinalg binds BLAS/LAPACK without leaving the
-    language — and it forces a healthy spec question: which externals
-    are portable.
 
 19. **A diagnostics program.** Source-highlighted errors,
     "did-you-mean" for near-miss names, a docs URL per PP code. The
@@ -254,11 +254,8 @@ Say them out loud anyway. Each has a real version hiding inside it.
 
 ## Parked (with reopening conditions)
 
-- **Cross-TU inlining / LTO (#13).** Measured ~1% for libm-bound
+- **Cross-TU inlining / LTO (issue #13).** Measured ~1% for libm-bound
   kernels; shipped nothing. Reopen when profiling shows a hot
   cross-module call chain that isn't libm-dominated — likely first in
   ppstats calling ppspecial primitives in tight loops (item 4 makes
   this measurable).
-- **`c32`-style component-width complex names.** Rejected in favor of
-  total-bit-width `c64`/`c128`; revisit only if a second implementation
-  or the array-api moves.
