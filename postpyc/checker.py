@@ -231,8 +231,20 @@ class _Checker(ast.NodeVisitor):
 # Public API
 # ---------------------------------------------------------------------------
 
-def check_source(source: str, filename: str = "<unknown>") -> list[Violation]:
-    """Parse *source* and return all POST Python violations."""
+def check_source(
+    source: str,
+    filename: str = "<unknown>",
+    *,
+    package_init: bool = False,
+) -> list[Violation]:
+    """Parse *source* and return all POST Python violations.
+
+    With ``package_init=True`` the file is treated as a package namespace
+    manifest (spec §9.1: an ``__init__.py``): only its declarative
+    top-level statements — imports, constants, aliases, ``__all__`` — are
+    validated. All other code in a manifest is CPython-boundary, runs in
+    interpreted mode only, and is exempt from the compilable subset.
+    """
     try:
         tree = ast.parse(source, filename=filename, type_comments=True)
     except SyntaxError as exc:
@@ -243,15 +255,31 @@ def check_source(source: str, filename: str = "<unknown>") -> list[Violation]:
             col_offset=exc.offset or 0,
             filename=filename,
         )]
+    if package_init:
+        tree = ast.Module(
+            body=[
+                node for node in tree.body
+                if isinstance(node, (ast.Import, ast.ImportFrom,
+                                     ast.Assign, ast.AnnAssign))
+            ],
+            type_ignores=[],
+        )
     checker = _Checker(filename=filename)
     checker.visit(tree)
     return sorted(checker.violations, key=lambda v: (v.lineno, v.col_offset))
 
 
 def check_file(path: str | Path) -> list[Violation]:
-    """Read *path* and return all POST Python violations."""
+    """Read *path* and return all POST Python violations.
+
+    ``__init__.py`` files are checked as package namespace manifests.
+    """
     path = Path(path)
-    return check_source(path.read_text(encoding="utf-8"), filename=str(path))
+    return check_source(
+        path.read_text(encoding="utf-8"),
+        filename=str(path),
+        package_init=path.name == "__init__.py",
+    )
 
 
 def is_valid(source: str, filename: str = "<unknown>") -> bool:

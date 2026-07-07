@@ -130,6 +130,13 @@ def collect_exports(modules: list[Module]) -> tuple[list[Export], list[TypeError
     for alias in entry.function_aliases:
         add(alias)
 
+    # A declared __all__ narrows the export set (names it lists that do
+    # not resolve to POST functions — e.g. dynamically provided ones —
+    # are simply outside the compiled ABI).
+    if entry.export_all is not None:
+        allowed = set(entry.export_all)
+        exports = {k: v for k, v in exports.items() if k in allowed}
+
     result = list(exports.values())
 
     # The pp_* namespace must not collide with kernel symbols.

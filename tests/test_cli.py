@@ -65,7 +65,8 @@ def test_build_error_reports_and_fails(tmp_path, capsys):
 def test_build_prefix_layout(tmp_path, capsys):
     pkg = tmp_path / "ppdemo"
     pkg.mkdir()
-    (pkg / "__init__.py").write_text(GOOD)
+    (pkg / "_impl.py").write_text(GOOD)
+    (pkg / "__init__.py").write_text("from ppdemo._impl import triple\n")
     prefix = tmp_path / "prefix"
 
     assert main(["build", str(pkg / "__init__.py"), "--prefix", str(prefix)]) == 0

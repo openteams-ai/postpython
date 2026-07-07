@@ -116,6 +116,9 @@ def collect_registrations(modules: list[Module]) -> list[tuple[str, UFunc]]:
         add(fn.name)
     for alias in entry.function_aliases:
         add(alias)
+    if entry.export_all is not None:
+        allowed = set(entry.export_all)
+        return [(n, fn) for n, fn in registrations.items() if n in allowed]
     return list(registrations.items())
 
 
