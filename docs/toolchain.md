@@ -3,8 +3,8 @@
 ## The `post-py` CLI
 
 ```
-post-py check FILE...          structural subset checking
-post-py build FILE [options]   compile to native artifacts
+post-py check FILE...              structural subset checking
+post-py build FILE|DIR [options]   compile to native artifacts
 ```
 
 (`postpyc` is an equivalent alias for the same command, matching the
@@ -15,6 +15,7 @@ Build options:
 | Option | Effect |
 |---|---|
 | `--output PATH` | artifact path (default: next to the source) |
+| *(directory target)* | builds the package: `__post__.py` entry if present, else the `__init__.py` manifest |
 | `--ext-module` | build an importable CPython extension registering NumPy ufuncs |
 | `--module-name NAME` | artifact / importable name (defaults to the file stem, or the package directory for `__init__.py`) |
 | `--emit-header` | write the C ABI header next to the output |

@@ -84,6 +84,27 @@ class BuildError(RuntimeError):
     """Raised when the POST Python → shared-library pipeline fails."""
 
 
+def resolve_build_entry(path: Path) -> Path:
+    """Resolve a build target to its entry translation unit.
+
+    A directory builds its package: ``__post__.py`` (an explicit,
+    strictly-checked compile entry) takes precedence over
+    ``__init__.py`` (the namespace manifest). An explicit file path is
+    used exactly as given.
+    """
+    if path.is_dir():
+        post_entry = path / "__post__.py"
+        if post_entry.is_file():
+            return post_entry
+        init_entry = path / "__init__.py"
+        if init_entry.is_file():
+            return init_entry
+        raise BuildError(
+            f"{path} is a directory with no __post__.py or __init__.py entry"
+        )
+    return path
+
+
 def _run(cmd: list[str]) -> None:
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
@@ -304,14 +325,16 @@ def build_file(
     ``emit_manifest=True`` the C header and the JSON export manifest are
     written next to the output as ``<output>.h`` / ``<output>.json``.
     """
-    path = Path(path)
+    path = resolve_build_entry(Path(path))
     modules, errors = compile_program(path, search_paths=search_paths)
     if errors:
         lines = "\n".join(f"  {e}" for e in errors)
         raise BuildError(f"Compiler errors building {str(path)!r}:\n{lines}")
 
     artifact = module_name or (
-        path.resolve().parent.name if path.stem == "__init__" else path.stem
+        path.resolve().parent.name
+        if path.stem in ("__init__", "__post__")
+        else path.stem
     )
     exports, abi_errors = collect_exports(modules)
     if abi_errors:

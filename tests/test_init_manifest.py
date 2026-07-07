@@ -163,6 +163,52 @@ def test_vectorized_kernel_in_manifest_is_diagnosed(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Explicit compile entry: __post__.py
+# ---------------------------------------------------------------------------
+
+def test_directory_build_prefers_post_entry(tmp_path):
+    from postpyc.build import resolve_build_entry
+
+    pkg = _write_pkg(tmp_path)
+    # Without __post__.py: the manifest is the entry.
+    assert resolve_build_entry(pkg).name == "__init__.py"
+    # With it: __post__.py wins.
+    (pkg / "__post__.py").write_text(
+        "from mypkg._kernels import double_it\n"
+        '__all__ = ["double_it"]\n'
+    )
+    assert resolve_build_entry(pkg).name == "__post__.py"
+
+
+def test_post_entry_is_strictly_checked(tmp_path):
+    pkg = _write_pkg(tmp_path)
+    (pkg / "__post__.py").write_text(DYNAMIC_INIT.replace("mypkg._kernels", "mypkg._kernels"))
+    from postpyc.build import BuildError, build_file
+    with pytest.raises(BuildError) as exc:
+        build_file(pkg, output=tmp_path / "x.so")
+    assert "PP006" in str(exc.value)  # `global` in a strict entry
+
+
+@needs_cc
+def test_directory_build_via_post_entry_runs(tmp_path):
+    pkg = _write_pkg(tmp_path)
+    (pkg / "__post__.py").write_text(
+        "from mypkg._kernels import double_it, triple_it\n"
+        '__all__ = ["triple_it"]\n'
+    )
+    lib_path = build_file(pkg, output=tmp_path / "out.so", emit_manifest=True)
+    lib = ctypes.CDLL(str(lib_path))
+    fn = lib.pp_triple_it
+    fn.argtypes = [ctypes.c_double]
+    fn.restype = ctypes.c_double
+    assert fn(2.0) == 6.0
+    import json
+    manifest = json.loads((tmp_path / "out.json").read_text())
+    # __post__'s own __all__ governs, independent of __init__'s.
+    assert {e["name"] for e in manifest["exports"]} == {"triple_it"}
+
+
+# ---------------------------------------------------------------------------
 # Runtime
 # ---------------------------------------------------------------------------
 

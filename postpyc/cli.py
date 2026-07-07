@@ -42,7 +42,12 @@ def _cmd_check(args: argparse.Namespace) -> int:
 def _artifact_name(path: Path, module_name: Optional[str]) -> str:
     if module_name:
         return module_name
-    return path.resolve().parent.name if path.stem == "__init__" else path.stem
+    resolved = path.resolve()
+    if resolved.is_dir():
+        return resolved.name
+    if resolved.stem in ("__init__", "__post__"):
+        return resolved.parent.name
+    return resolved.stem
 
 
 def _cmd_build(args: argparse.Namespace) -> int:
