@@ -121,6 +121,23 @@ Python built-in types map to POST Python types as follows:
 | `str`   | `Str`       |
 | `bytes` | `Bytes`     |
 
+Each numeric dtype additionally has a **short-hand spelling** — a compact
+bit-width name exported by `postyp` as an alias for the same class
+(`i32 is Int32`). Conforming implementations must accept both spellings
+interchangeably wherever an annotation is accepted:
+
+| Family   | Short-hands              | Canonical                          |
+|----------|--------------------------|------------------------------------|
+| signed   | `i8` `i16` `i32` `i64`   | `Int8` `Int16` `Int32` `Int64`     |
+| unsigned | `u8` `u16` `u32` `u64`   | `UInt8` `UInt16` `UInt32` `UInt64` |
+| float    | `f16` `f32` `f64`        | `Float16` `Float32` `Float64`      |
+| complex  | `c64` `c128`             | `Complex64` `Complex128`           |
+
+The number is the total bit width in every family (`c64` is `Complex64`:
+two `Float32` components). `Bool`, `Str`, and `Bytes` have no short-hand.
+Compiled artifacts — C headers, export manifests — always report the
+canonical spelling regardless of which one the source used.
+
 A conforming compiler must respect IEEE 754 semantics for all floating-point operations.
 
 ### 4.1.1 Numeric Semantics
@@ -335,6 +352,10 @@ scalar_type ::= "Bool" | "Int8" | "Int16" | "Int32" | "Int64"
               | "Complex64" | "Complex128"
               | "Str" | "Bytes"
               | "Int" | "Float" | "Complex"   # aliases
+              | "i8" | "i16" | "i32" | "i64"  # short-hand spellings (§4.1)
+              | "u8" | "u16" | "u32" | "u64"
+              | "f16" | "f32" | "f64"
+              | "c64" | "c128"
               | "bool" | "int" | "float" | "complex" | "str" | "bytes"  # Python built-ins
 
 dtype     ::= scalar_type
@@ -634,7 +655,7 @@ The reference compiler emits C99 as its intermediate output, then invokes the sy
 
 POST Python's standard library consists of:
 
-1. **`postyp`** — the type vocabulary (scalar dtypes, `Array`, `DataFrame`, `Series`, `Shape`).
+1. **`postyp`** — the type vocabulary (scalar dtypes and their short-hand spellings (§4.1), `Array`, `DataFrame`, `Series`, `Shape`).
 2. **`postpyc` / `postpyc.ufunc`** — the `@vectorize` and `@guvectorize` decorators and signature utilities.
 3. **`postpyc.math`** — scalar math functions (`sqrt`, `sin`, `cos`, `exp`, `log`, …), lowered to `libm`.
 4. **`postpyc.mem`** — explicit memory utilities (`alloc`, `free`, `share`) for advanced use.
@@ -673,7 +694,7 @@ Extensions must not change the meaning of POST Core programs unless explicitly e
 This section is non-normative.
 
 - Implementors targeting CPython extension output should follow the [CPython limited API](https://docs.python.org/3/c-api/stable.html) to maximize ABI stability.
-- The `postyp` module is the canonical source of type metadata; compilers should import and introspect it rather than duplicating dtype definitions.
+- The `postyp` module is the canonical source of type metadata; compilers should import and introspect it rather than duplicating dtype definitions. It exports `SCALAR_DTYPES` (the canonical classes) and `SHORTHAND_DTYPES` (short-hand spelling → canonical class) for exactly this purpose.
 - The reference compiler (this repository) serves as an executable implementation aid and conformance-test target.  The prose specification is normative.
 - Implementors of existing tools (Cython, mypyc, Numba, Codon, Pythran, taichi-lang, etc.) implementing this standard should document which conformance profiles, violation codes, and ABIs they support.
 

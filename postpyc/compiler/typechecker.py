@@ -20,6 +20,7 @@ from postyp import (
     Float16, Float32, Float64,
     Complex64, Complex128,
     Str, Bytes,
+    SHORTHAND_DTYPES,
     Array, Shape, AnyShape,
     ArrayLayout, COrder, FOrder, Strides,
 )
@@ -75,6 +76,10 @@ _ANNOTATION_MAP: dict[str, type[DType]] = {
     "str":        Str,
     "bytes":      Bytes,
 }
+
+# Short-hand bit-width spellings (i32, u16, f64, c128, …) come from
+# postyp itself so the vocabulary has a single source of truth.
+_ANNOTATION_MAP.update(SHORTHAND_DTYPES)
 
 
 def _resolve_dtype_expr(node: ast.expr) -> Optional[type[DType]]:
