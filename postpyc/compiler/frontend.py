@@ -1654,11 +1654,32 @@ def _classify_imports(
                 module.boundary_imports[local] = imported
 
 
+def _collect_export_all(tree: ast.Module) -> Optional[list[str]]:
+    """Extract a top-level ``__all__`` list of string literals, if any."""
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == "__all__"
+            and isinstance(node.value, (ast.List, ast.Tuple))
+        ):
+            names = []
+            for element in node.value.elts:
+                if isinstance(element, ast.Constant) and isinstance(element.value, str):
+                    names.append(element.value)
+                else:
+                    return None  # dynamic __all__ — ignore
+            return names
+    return None
+
+
 def compile_source(
     source: str,
     filename: str = "<unknown>",
     *,
     program: Optional[dict[str, Module]] = None,
+    package_init: bool = False,
 ) -> tuple[Module, list]:
     """Parse and lower *source* to a POST Python Module.
 
@@ -1670,9 +1691,16 @@ def compile_source(
     calls to names imported from those modules resolve against their IR
     (see compile_program). Without it, POST-style imports are treated as
     CPython-boundary imports.
+
+    With ``package_init=True`` the file is a package namespace manifest
+    (spec §9.1): only its declarative statements — POST imports, module
+    constants, function aliases, ``__all__`` — participate in
+    compilation. Everything else (function definitions, calls, dynamic
+    loaders) is CPython-boundary code that runs in interpreted mode only
+    and is neither checked nor lowered.
     """
     # 1. Checker pass.
-    violations = check_source(source, filename=filename)
+    violations = check_source(source, filename=filename, package_init=package_init)
     if violations:
         return Module(name=filename), violations
 
@@ -1686,8 +1714,9 @@ def compile_source(
     program = program or {}
     _classify_imports(tree, module, program, errors)
     _collect_module_constants(tree, module)
+    module.export_all = _collect_export_all(tree)
 
-    for index, node in enumerate(tree.body):
+    for index, node in enumerate(tree.body) if not package_init else ():
         if isinstance(node, ast.Expr):
             if (
                 index == 0
@@ -1726,9 +1755,25 @@ def compile_source(
             ))
 
     # Phase 1: declare every function so calls (including forward
-    # references) can resolve against complete signatures.
+    # references) can resolve against complete signatures. A namespace
+    # manifest defines no compiled functions; its defs are boundary code —
+    # but a vectorized kernel in a manifest is almost certainly misplaced,
+    # so diagnose it instead of skipping silently.
+    if package_init:
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and _extract_ufunc_decorator(node):
+                errors.append(TypeError_PP(
+                    code="PP900",
+                    message=(
+                        f"vectorized kernel `{node.name}` cannot be defined in a "
+                        "package __init__ manifest; move it to a module and "
+                        "import it here (spec §9.1)"
+                    ),
+                    lineno=node.lineno,
+                    col_offset=node.col_offset,
+                ))
     lifters: list[FunctionLifter] = []
-    for node in tree.body:
+    for node in (tree.body if not package_init else ()):
         if isinstance(node, ast.FunctionDef):
             ufunc_decorator = _extract_ufunc_decorator(node)
             ufunc_sig = ufunc_decorator.signature if ufunc_decorator else None
@@ -1877,7 +1922,10 @@ def compile_program(
                     compile_unit(dep_path, mod)
 
         module, unit_errors = compile_source(
-            source, filename=str(file_path), program=program,
+            source,
+            filename=str(file_path),
+            program=program,
+            package_init=file_path.name == "__init__.py",
         )
         module.dep_modules = [
             program[dep] for dep in module.dependencies if dep in program

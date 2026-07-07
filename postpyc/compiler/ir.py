@@ -341,6 +341,9 @@ class Module:
     # the aliased name (a function of this module, an imported POST
     # function's local name, or another alias).
     function_aliases: dict[str, str] = field(default_factory=dict)
+    # Contents of a top-level ``__all__`` list of string literals, if
+    # present; exports and ufunc registrations are narrowed to it.
+    export_all: Optional[list[str]] = None
 
     def add_function(self, fn: Function) -> None:
         self.functions.append(fn)
