@@ -221,6 +221,14 @@ the conformance story for free.
 
 ## 9. PR series
 
+All PRs in the series target the integration branch
+**`feature/callable-params`** (sub-branches named
+`callable-params/<stage>`), so each stage gets focused review while
+main stays releasable. The integration branch merges to `main` once
+PR 5 lands, giving one place to review the assembled feature against
+main at the end. CI runs its full matrix on PRs regardless of base
+branch.
+
 | PR | Scope | Proof |
 |----|-------|-------|
 | 1 *(this)* | Design doc | review |
