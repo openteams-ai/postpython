@@ -146,6 +146,51 @@ Complex = Complex128
 
 
 # ---------------------------------------------------------------------------
+# Short-hand dtype aliases — bit-width spellings
+# ---------------------------------------------------------------------------
+# Compact spellings for the scalar dtypes, in the style of Rust, MLIR,
+# and array-language promotion tables.  Each is the same class object as
+# its canonical name (``i32 is Int32``), so the two spellings are
+# interchangeable everywhere — annotations, Array parameters, runtime.
+#
+#     from postyp import Array, f64, i32
+#
+#     def nth(a: Array[f64], n: i32) -> f64: ...
+#
+# The number is the total bit width in every family, matching the
+# canonical names: ``c64`` is Complex64 (two Float32 components).
+# Compiled artifacts (headers, export manifests) always report the
+# canonical spelling.  Bool, Str, and Bytes deliberately have no
+# short-hand.
+
+i8  = Int8
+i16 = Int16
+i32 = Int32
+i64 = Int64
+
+u8  = UInt8
+u16 = UInt16
+u32 = UInt32
+u64 = UInt64
+
+f16 = Float16
+f32 = Float32
+f64 = Float64
+
+c64  = Complex64
+c128 = Complex128
+
+#: Short-hand spelling → canonical dtype.  Compilers consume this table
+#: for annotation resolution instead of hard-coding the names.
+SHORTHAND_DTYPES: dict[str, type[DType]] = {
+    "i8": Int8, "i16": Int16, "i32": Int32, "i64": Int64,
+    "u8": UInt8, "u16": UInt16, "u32": UInt32, "u64": UInt64,
+    "f16": Float16, "f32": Float32, "f64": Float64,
+    "c64": Complex64, "c128": Complex128,
+}
+
+
+# ---------------------------------------------------------------------------
 # All public dtype names (for introspection / checker use)
 # ---------------------------------------------------------------------------
 
@@ -525,6 +570,12 @@ __all__ = [
     "Str", "Bytes",
     # Aliases
     "Int", "Float", "Complex",
+    # Short-hand bit-width spellings
+    "i8", "i16", "i32", "i64",
+    "u8", "u16", "u32", "u64",
+    "f16", "f32", "f64",
+    "c64", "c128",
+    "SHORTHAND_DTYPES",
     # All scalar dtypes
     "SCALAR_DTYPES",
     # Shape / layout

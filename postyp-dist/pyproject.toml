@@ -10,7 +10,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "postyp"
-version = "0.2.0"
+version = "0.3.0"
 description = "POST Python type vocabulary: scalar dtypes, Array, Shape, layouts, DataFrame and Series annotations."
 readme = "README.md"
 requires-python = ">=3.10"

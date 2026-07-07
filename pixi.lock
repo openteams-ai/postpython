@@ -5,8 +5,6 @@ environments:
     - url: https://conda.anaconda.org/conda-forge/
     indexes:
     - https://pypi.org/simple
-    options:
-      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
@@ -203,8 +201,6 @@ environments:
     - url: https://conda.anaconda.org/conda-forge/
     indexes:
     - https://pypi.org/simple
-    options:
-      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
@@ -496,8 +492,6 @@ environments:
     - url: https://conda.anaconda.org/conda-forge/
     indexes:
     - https://pypi.org/simple
-    options:
-      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
@@ -3345,9 +3339,9 @@ packages:
 - pypi: ./
   name: postpyc
   version: 0.2.1
-  sha256: a53d6a76e5a5a46716eacdf4be55fbaa81144709c9e2d1504bc49c45f86f3801
+  sha256: e01e246dda8344e17e9c3fb971d68473ee62d2773d9cc62fbf2063de53c46d33
   requires_dist:
-  - postyp>=0.2.0
+  - postyp>=0.3.0
   - numpy ; extra == 'numpy'
   - narwhals ; extra == 'narwhals'
   - pytest>=7 ; extra == 'dev'
@@ -3355,10 +3349,11 @@ packages:
   - narwhals ; extra == 'dev'
   - mkdocs-material ; extra == 'docs'
   requires_python: '>=3.10'
+  editable: true
 - pypi: ./postyp-dist
   name: postyp
-  version: 0.2.0
-  sha256: 75cd5622fa5f0e2cbd6452ae08a94322911815de95752b50160372a1e15c6d55
+  version: 0.3.0
+  sha256: ab7bb842f9ac10d33b5e9404059cd4152e8eb6501996bfed2f4b11eb68320546
   requires_python: '>=3.10'
 - conda: https://conda.anaconda.org/conda-forge/noarch/pygments-2.20.0-pyhd8ed1ab_0.conda
   sha256: cf70b2f5ad9ae472b71235e5c8a736c9316df3705746de419b59d442e8348e86

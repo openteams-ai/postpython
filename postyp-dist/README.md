@@ -15,6 +15,16 @@ from postyp import Array, Float64, Shape
 def det3(m: Array[Float64, Shape[3, 3]]) -> Float64: ...
 ```
 
+Every scalar dtype also has a bit-width short-hand (`i8`…`i64`,
+`u8`…`u64`, `f16`/`f32`/`f64`, `c64`/`c128`) — the same class under a
+compact name, for signatures that would otherwise wrap:
+
+```python
+from postyp import Array, f64
+
+def det3(m: Array[f64, Shape[3, 3]]) -> f64: ...
+```
+
 The reference compiler is distributed separately as
 [`postpyc`](https://pypi.org/project/postpyc/), which depends on this package. Development happens in
 [openteams-ai/postpython](https://github.com/openteams-ai/postpython).

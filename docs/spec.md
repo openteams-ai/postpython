@@ -121,6 +121,23 @@ Python built-in types map to POST Python types as follows:
 | `str`   | `Str`       |
 | `bytes` | `Bytes`     |
 
+Each numeric dtype additionally has a **short-hand spelling** — a compact
+bit-width name exported by `postyp` as an alias for the same class
+(`i32 is Int32`). Conforming implementations must accept both spellings
+interchangeably wherever an annotation is accepted:
+
+| Family   | Short-hands              | Canonical                          |
+|----------|--------------------------|------------------------------------|
+| signed   | `i8` `i16` `i32` `i64`   | `Int8` `Int16` `Int32` `Int64`     |
+| unsigned | `u8` `u16` `u32` `u64`   | `UInt8` `UInt16` `UInt32` `UInt64` |
+| float    | `f16` `f32` `f64`        | `Float16` `Float32` `Float64`      |
+| complex  | `c64` `c128`             | `Complex64` `Complex128`           |
+
+The number is the total bit width in every family (`c64` is `Complex64`:
+two `Float32` components). `Bool`, `Str`, and `Bytes` have no short-hand.
+Compiled artifacts — C headers, export manifests — always report the
+canonical spelling regardless of which one the source used.
+
 A conforming compiler must respect IEEE 754 semantics for all floating-point operations.
 
 ### 4.1.1 Numeric Semantics
@@ -335,6 +352,10 @@ scalar_type ::= "Bool" | "Int8" | "Int16" | "Int32" | "Int64"
               | "Complex64" | "Complex128"
               | "Str" | "Bytes"
               | "Int" | "Float" | "Complex"   # aliases
+              | "i8" | "i16" | "i32" | "i64"  # short-hand spellings (§4.1)
+              | "u8" | "u16" | "u32" | "u64"
+              | "f16" | "f32" | "f64"
+              | "c64" | "c128"
               | "bool" | "int" | "float" | "complex" | "str" | "bytes"  # Python built-ins
 
 dtype     ::= scalar_type

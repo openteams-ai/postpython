@@ -61,6 +61,11 @@ def dot(a: Array[Float64], b: Array[Float64], out: Array[Float64]) -> None:
     out[0] = acc
 ```
 
+Every numeric dtype also has a bit-width short-hand — `i32`, `u16`,
+`f64`, `c128`, … — importable from `postyp` and interchangeable with
+the long spelling (`f64 is Float64`), for signatures that would
+otherwise wrap.
+
 Run it interpreted right now — no compiler involved:
 
 ```python
