@@ -197,7 +197,20 @@ design doc before code.
     for extension modules") requires objects, not just functions.
     Probably the hardest language-design work on this list.
 
-33. **Fixed-shape specialization.** `Shape[3, 3]` kernels with unrolled,
+33. **A polymorphism story: Protocols first, traits later.** The SciPy
+    rebuild hits interface-shaped problems around ppstats/pplinalg
+    (`LinearOperator` is "anything with `matvec`"; `rv_continuous` is
+    template-method dispatch). Closed-world compilation lets POST
+    answer statically first: `typing.Protocol` bounds monomorphized at
+    compile time (sharing item 2's generic-kernel machinery), with
+    structs of callable parameters as the explicit early idiom.
+    Nominal traits in mypyc's restricted form — one concrete base plus
+    interface-only bases over a fixed vtable layout, PP010 relaxed
+    accordingly — belong to the class profile (item 32) and should
+    arrive only when a pp* package demonstrates genuine runtime
+    polymorphism inside compiled code.
+
+34. **Fixed-shape specialization.** `Shape[3, 3]` kernels with unrolled,
     SIMD-friendly codegen — small-matrix determinants, quaternion ops,
     3D geometry. The annotation grammar already carries the
     information; the backend just doesn't exploit it.
@@ -208,43 +221,43 @@ design doc before code.
 
 Say them out loud anyway. Each has a real version hiding inside it.
 
-34. **PostNumPy.** After the SciPy rebuild proves out: reimplement
+35. **PostNumPy.** After the SciPy rebuild proves out: reimplement
     NumPy's umath inner loops as POST kernels and swap them in as an
     optional backend. The stack's foundation rebuilt on the standard —
     and a certain poetry in NumPy's author replacing its C with
     compilable Python, twenty years on.
 
-35. **Self-hosting slices.** Rewrite the compiler's hottest paths — the
+36. **Self-hosting slices.** Rewrite the compiler's hottest paths — the
     checker walk, the C emitter — in POST Python and compile them with
     the previous release. Every serious language eventually eats its own
     cooking; the subset is arguably already sufficient for these passes.
 
-36. **Upstream to CPython.** POST annotations as *guarantees* for
+37. **Upstream to CPython.** POST annotations as *guarantees* for
     CPython's tier-2 JIT (a function known to be POST-conforming can
     skip guard chains), or a PEP standardizing the dtype-annotation
     vocabulary itself. High-risk, glacial, and the single largest
     possible impact: the subset stops being a dialect and becomes a
     gradient inside Python itself.
 
-37. **Distributed profile.** gufunc dataflow graphs scheduled across
+38. **Distributed profile.** gufunc dataflow graphs scheduled across
     nodes — manifests already describe kernels well enough to place
     them remotely. The spec's goal 6 ("base layer for distributed
     DSLs") taken literally: a compiled, typed dask-lite.
 
-38. **A compiled query engine.** LazyFrame plans compiled whole —
+39. **A compiled query engine.** LazyFrame plans compiled whole —
     predicate pushdown, loop fusion, vectorized execution — instead of
     delegating to a backend. A polars-lite whose semantics come from a
     published spec rather than an implementation. Enormous; only
-    sane after #28 succeeds and demands it.
+    sane after item 28 succeeds and demands it.
 
-39. **The methodology as a product.** This project is quietly a second
+40. **The methodology as a product.** This project is quietly a second
     experiment: a spec-anchored open team of humans and agents, with
     conformance tests as the reward signal and GitHub issues as the
     inter-agent protocol. Write it down, tool it, and offer it to other
     standards efforts — the OpenTeams thesis made concrete. The compiler
     might not be the most durable artifact here; the playbook might be.
 
-40. **Silicon vendors ship POST.** A hardware vendor implements the
+41. **Silicon vendors ship POST.** A hardware vendor implements the
     Accelerator Extension as their kernel-language front end — POST
     Python as the portable answer to "what do we give Python
     programmers on our chip?" Crazy until you remember every vendor
