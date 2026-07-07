@@ -16,6 +16,5 @@ def det3(m: Array[Float64, Shape[3, 3]]) -> Float64: ...
 ```
 
 The reference compiler is distributed separately as
-[`postpyc`](https://pypi.org/project/postpyc/) (import name
-`post_py`), which depends on this package. Development happens in
+[`postpyc`](https://pypi.org/project/postpyc/), which depends on this package. Development happens in
 [openteams-ai/postpython](https://github.com/openteams-ai/postpython).

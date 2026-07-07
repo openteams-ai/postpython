@@ -2,9 +2,9 @@
 
 Pipeline
 --------
-1. Check   post_py.checker      — reject non-compilable syntax (PP000-PP033)
-2. Lower   post_py.compiler.frontend  — AST → POST Python IR
-3. Emit    post_py.compiler.backend.c_backend  — IR → C99 source
+1. Check   postpyc.checker      — reject non-compilable syntax (PP000-PP033)
+2. Lower   postpyc.compiler.frontend  — AST → POST Python IR
+3. Emit    postpyc.compiler.backend.c_backend  — IR → C99 source
 4. Compile system C compiler       — C99 → native shared library
 5. Load    ctypes                  — call compiled functions from Python
 6. Batch   numpy                   — broadcast over arrays via the ufunc wrapper
@@ -26,10 +26,10 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-from post_py.checker import check_source
-from post_py.compiler.frontend import compile_source
-from post_py.compiler.backend.c_backend import emit_module
-from post_py.build import build_file, BuildError
+from postpyc.checker import check_source
+from postpyc.compiler.frontend import compile_source
+from postpyc.compiler.backend.c_backend import emit_module
+from postpyc.build import build_file, BuildError
 
 SOURCE = ROOT / "examples" / "gaussian.py"
 

@@ -1,7 +1,7 @@
 """Tests for the POST Python subset checker."""
 
 import pytest
-from post_py.checker import check_source, is_valid
+from postpyc.checker import check_source, is_valid
 
 
 def violations_for(source: str) -> set[str]:

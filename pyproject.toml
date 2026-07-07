@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 [project]
 name = "postpyc"
 version = "0.2.0"
-description = "postpyc — the POST Python Compiler: reference implementation of the POST Python standard (import name: post_py)."
+description = "postpyc — the POST Python Compiler: reference implementation of the POST Python standard (import name: postpyc)."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Travis E. Oliphant" }]
@@ -33,8 +33,8 @@ dev = ["pytest>=7", "numpy", "narwhals"]
 docs = ["mkdocs-material"]
 
 [project.scripts]
-post-py = "post_py.cli:main"
-postpyc = "post_py.cli:main"
+post-py = "postpyc.cli:main"
+postpyc = "postpyc.cli:main"
 
 [project.urls]
 Website = "https://post-py.org/"
@@ -46,11 +46,11 @@ Specification = "https://github.com/openteams-ai/postpython/blob/main/docs/spec.
 # module at the top level. Hatchling needs both told explicitly.
 
 [tool.hatch.build.targets.wheel]
-packages = ["post_py"]
+packages = ["postpyc"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "post_py",
+    "postpyc",
     "docs",
     "examples",
     "tests",

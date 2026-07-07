@@ -24,7 +24,7 @@ Build options:
 | `--cc`, `--cflags`, `--keep-c` | toolchain control |
 
 The same pipeline is available as a Python API:
-`post_py.build.build_file` / `build_source`.
+`postpyc.build.build_file` / `build_source`.
 
 ## What a build does
 

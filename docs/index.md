@@ -10,8 +10,8 @@ same file to native code with no Python runtime in the binary.
 
 ```python
 from postyp import Float64
-from post_py import vectorize
-from post_py.math import exp
+from postpyc import vectorize
+from postpyc.math import exp
 
 @vectorize
 def gaussian(x: Float64, mu: Float64, sigma: Float64) -> Float64:

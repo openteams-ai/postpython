@@ -12,7 +12,7 @@ core dimension.  It demonstrates:
 """
 
 from postyp import Array, Float64
-from post_py import guvectorize
+from postpyc import guvectorize
 
 
 @guvectorize([], "(n),(n)->()")

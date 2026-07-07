@@ -25,10 +25,10 @@ python -m pip install ./postyp-dist -e ".[dev]"
 pytest
 ```
 
-(The PyPI distribution is named `postpyc`; the import names are the
-standard's `post_py` and `postyp`.)
+(Distribution, import, and CLI all share the name: `pip install postpyc`,
+`import postpyc`, `postpyc build`.)
 
-Both paths install the `post_py` package, the `postyp` type
+Both paths install the `postpyc` package, the `postyp` type
 vocabulary, and the `post-py` CLI.
 
 ## Write a kernel
@@ -39,8 +39,8 @@ boundaries (the checker enforces this):
 ```python
 # kernels.py
 from postyp import Array, Float64
-from post_py import vectorize, guvectorize
-from post_py.math import exp
+from postpyc import vectorize, guvectorize
+from postpyc.math import exp
 
 HALF: Float64 = 0.5          # module constants fold at compile time
 

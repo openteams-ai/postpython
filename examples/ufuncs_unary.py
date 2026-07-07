@@ -12,7 +12,7 @@ which operate on *sub-arrays* of specified rank.
 """
 
 from postyp import Float64, Int64, Bool
-from post_py import vectorize
+from postpyc import vectorize
 
 
 # ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@ The norm broadcasts naturally over batches: norm([[3,4],[5,12]]) → [5., 13.]
 """
 
 from postyp import Array, Float64
-from post_py import guvectorize
+from postpyc import guvectorize
 
 
 @guvectorize([], "(n)->()")

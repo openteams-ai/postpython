@@ -1,6 +1,6 @@
 """POST Python type checker and inference engine.
 
-Operates on Python AST nodes after the checker (post_py.checker) has
+Operates on Python AST nodes after the checker (postpyc.checker) has
 confirmed the source is in the compilable subset.  Produces a type
 environment mapping AST node ids to postyp DType subclasses.
 """
@@ -11,8 +11,8 @@ import ast
 from dataclasses import dataclass, field
 from typing import Optional
 
-# sys.path setup happens once in post_py/__init__.py.
-import post_py  # noqa: F401  -- ensure path setup runs
+# sys.path setup happens once in postpyc/__init__.py.
+import postpyc  # noqa: F401  -- ensure path setup runs
 from postyp import (
     DType, Bool,
     Int8, Int16, Int32, Int64,

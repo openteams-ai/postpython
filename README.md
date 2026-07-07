@@ -50,9 +50,9 @@ vehicle for the standard.
 POST Python code uses ordinary Python syntax with explicit type annotations:
 
 ```python
-from post_py import vectorize
+from postpyc import vectorize
 from postyp import Float64
-from post_py.math import exp
+from postpyc.math import exp
 
 
 @vectorize
@@ -65,7 +65,7 @@ Generalized vectorized kernels use Numba-style `@guvectorize` with output
 parameters:
 
 ```python
-from post_py import guvectorize
+from postpyc import guvectorize
 from postyp import Array, Float64
 
 
@@ -82,11 +82,11 @@ def dot(a: Array[Float64], b: Array[Float64], out: Array[Float64]) -> None:
 ```text
 docs/spec.md              Draft language specification
 postyp-dist/postyp.py     Type vocabulary (published separately as `postyp`)
-post_py/checker.py     Structural subset checker
-post_py/compiler/      AST frontend, IR, and C backend
-post_py/ufunc.py       @vectorize and @guvectorize runtime wrappers
-post_py/build.py       POST Python to C99 to shared-library build helper
-post_py/math.py        Typed scalar math wrappers
+postpyc/checker.py     Structural subset checker
+postpyc/compiler/      AST frontend, IR, and C backend
+postpyc/ufunc.py       @vectorize and @guvectorize runtime wrappers
+postpyc/build.py       POST Python to C99 to shared-library build helper
+postpyc/math.py        Typed scalar math wrappers
 examples/                 Example POST Python source files
 tests/                    Reference test suite
 ```
@@ -95,7 +95,7 @@ tests/                    Reference test suite
 
 POST Python ships as a regular Python package and can be installed with either
 `pip` or [pixi](https://pixi.sh/). Both paths install two importable units:
-the `post_py` package and the `postyp` type module.
+the `postpyc` package and the `postyp` type module.
 
 A working C compiler (`cc`, `clang`, or `gcc`) is required to compile POST
 Python sources to native code. The pixi environment installs one for you;
@@ -109,7 +109,7 @@ python -m pip install postpyc
 
 The distribution is named `postpyc` (`postpython` and `postpy` on PyPI
 belong to unrelated projects, and PyPI's name-similarity rule blocks
-`post-py`). The standard's import names are `post_py` and `postyp`. The type vocabulary
+`post-py`). The import name matches: `import postpyc`. The type vocabulary
 is published separately as [`postyp`](https://pypi.org/project/postyp/)
 and installed automatically as a dependency.
 
@@ -170,7 +170,7 @@ python examples/build_shared_lib.py
 Or call the build helper directly:
 
 ```python
-from post_py.build import build_file
+from postpyc.build import build_file
 
 lib_path = build_file("examples/gaussian.py")
 print(lib_path)

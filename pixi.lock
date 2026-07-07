@@ -3345,7 +3345,7 @@ packages:
 - pypi: ./
   name: postpyc
   version: 0.2.0
-  sha256: 732d2bce25bd63003fba6be61de5ae8197fd4fd8e485c4a208cc9dbccbf0b2cb
+  sha256: fe3850578ee34a0658b6ab1ae0df21589fc69e40e39ecad269ca44d42d882419
   requires_dist:
   - postyp>=0.2.0
   - numpy ; extra == 'numpy'

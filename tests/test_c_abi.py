@@ -12,14 +12,14 @@ import shutil
 
 import pytest
 
-from post_py.build import build_file, BuildError
-from post_py.compiler.backend.abi import (
+from postpyc.build import build_file, BuildError
+from postpyc.compiler.backend.abi import (
     collect_exports,
     emit_export_wrappers,
     emit_header,
     export_manifest,
 )
-from post_py.compiler.frontend import compile_program, compile_source
+from postpyc.compiler.frontend import compile_program, compile_source
 
 cc = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
 needs_cc = pytest.mark.skipif(cc is None, reason="No C compiler available")
@@ -27,7 +27,7 @@ needs_cc = pytest.mark.skipif(cc is None, reason="No C compiler available")
 
 LIB = """\
 from postyp import Array, Float64
-from post_py import vectorize, guvectorize
+from postpyc import vectorize, guvectorize
 
 def _helper(x: Float64) -> Float64:
     return x * 0.5
@@ -247,7 +247,7 @@ def test_alias_and_target_agree_at_runtime(tmp_path):
 
 @needs_cc
 def test_build_source_also_defines_pp_symbols():
-    from post_py.build import build_source
+    from postpyc.build import build_source
 
     lib = ctypes.CDLL(str(build_source(
         "from postyp import Float64\n"

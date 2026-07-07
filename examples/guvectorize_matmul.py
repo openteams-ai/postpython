@@ -12,7 +12,7 @@ This example also demonstrates:
 """
 
 from postyp import Array, Float64, Int64
-from post_py import guvectorize
+from postpyc import guvectorize
 
 
 @guvectorize([], "(m,k),(k,n)->(m,n)")

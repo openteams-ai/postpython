@@ -7,7 +7,7 @@ import shutil
 
 import pytest
 
-from post_py.cli import main
+from postpyc.cli import main
 
 cc = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
 needs_cc = pytest.mark.skipif(cc is None, reason="No C compiler available")

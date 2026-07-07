@@ -14,7 +14,7 @@ decorators and lowers them to the NumPy ufunc C ABI.
 Usage::
 
     from postyp import Array, Float64
-    from post_py import guvectorize
+    from postpyc import guvectorize
 
     @guvectorize([], "(n),(n)->()")
     def dot(a: Array[Float64], b: Array[Float64], out: Array[Float64]) -> None:
