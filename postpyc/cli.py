@@ -1,7 +1,7 @@
 """POST Python command-line interface.
 
-    post-py check FILE...          structural subset checking
-    post-py build FILE [options]   compile to native artifacts
+    postpyc check FILE...          structural subset checking
+    postpyc build FILE [options]   compile to native artifacts
 
 The build subcommand is the stable entry point for packaging recipes
 (conda/pixi, nix, spack). ``--prefix`` produces the ``libpp<name>``
@@ -9,7 +9,7 @@ install layout described in docs/distribution.md:
 
     $PREFIX/lib/lib<artifact>.so            (.dylib on macOS)
     $PREFIX/include/<artifact>.h
-    $PREFIX/share/post-py/<artifact>.json
+    $PREFIX/share/postpyc/<artifact>.json
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
             prefix = Path(args.prefix)
             lib_dir = prefix / "lib"
             include_dir = prefix / "include"
-            share_dir = prefix / "share" / "post-py"
+            share_dir = prefix / "share" / "postpyc"
             for directory in (lib_dir, include_dir, share_dir):
                 directory.mkdir(parents=True, exist_ok=True)
 
@@ -129,7 +129,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     build.add_argument("--output", "-o", help="output artifact path")
     build.add_argument(
         "--prefix",
-        help="install the libpp<name> layout (lib/, include/, share/post-py/) "
+        help="install the libpp<name> layout (lib/, include/, share/postpyc/) "
              "under this prefix",
     )
     build.add_argument("--ext-module", action="store_true",

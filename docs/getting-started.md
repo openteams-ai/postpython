@@ -29,7 +29,7 @@ pytest
 `import postpyc`, `postpyc build`.)
 
 Both paths install the `postpyc` package, the `postyp` type
-vocabulary, and the `post-py` CLI.
+vocabulary, and the `postpyc` CLI.
 
 ## Write a kernel
 
@@ -75,7 +75,7 @@ array([ 6., 22., 38.])
 ## Check conformance
 
 ```bash
-post-py check kernels.py
+postpyc check kernels.py
 ```
 
 Violations of the compilable subset are reported with `PP`-prefixed
@@ -86,7 +86,7 @@ diagnostic codes defined by the [specification](spec.md).
 **A shared library with a stable C ABI:**
 
 ```bash
-post-py build kernels.py --emit-header --emit-manifest
+postpyc build kernels.py --emit-header --emit-manifest
 ```
 
 produces `kernels.dylib`/`.so` (plus `kernels.h` and `kernels.json`)
@@ -104,7 +104,7 @@ or ctypes:
 **A NumPy ufunc extension module:**
 
 ```bash
-post-py build kernels.py --ext-module
+postpyc build kernels.py --ext-module
 ```
 
 ```python
@@ -117,9 +117,9 @@ post-py build kernels.py --ext-module
 **The package-manager layout** (what a conda/nix recipe calls):
 
 ```bash
-post-py build mypkg/__init__.py --prefix $PREFIX
+postpyc build mypkg/__init__.py --prefix $PREFIX
 # → $PREFIX/lib/libmypkg.so, $PREFIX/include/mypkg.h,
-#   $PREFIX/share/post-py/mypkg.json
+#   $PREFIX/share/postpyc/mypkg.json
 ```
 
 ## Multi-module programs
@@ -130,7 +130,7 @@ one module calls the *compiled* `erfc` from the other, never a
 same-named libm symbol:
 
 ```bash
-post-py build mypkg/__init__.py    # compiles the whole package
+postpyc build mypkg/__init__.py    # compiles the whole package
 ```
 
 ## Learn the language

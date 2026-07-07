@@ -3,8 +3,8 @@
 ## The `post-py` CLI
 
 ```
-post-py check FILE...              structural subset checking
-post-py build FILE|DIR [options]   compile to native artifacts
+postpyc check FILE...              structural subset checking
+postpyc build FILE|DIR [options]   compile to native artifacts
 ```
 
 (`postpyc` is an equivalent alias for the same command, matching the

@@ -80,7 +80,7 @@ The prose specification is normative.  The reference checker, reference compiler
 - Encoding: UTF-8.
 - File extension: `.py` (same as Python; no new extension is introduced).
 - A POST Python file must be parseable by the CPython `ast` module with `type_comments=True`.
-- The first-party checker (`post-py check`) is the normative structural checker for the reference implementation.  Full conformance also requires type, semantic, memory, and profile-specific validation.
+- The first-party checker (`postpyc check`) is the normative structural checker for the reference implementation.  Full conformance also requires type, semantic, memory, and profile-specific validation.
 - Top-level executable statements are implementation-defined in v0.1 except for imports, type aliases, constant definitions, class definitions, and function definitions.  Portable POST Python packages should put executable logic behind typed functions.
 
 ---

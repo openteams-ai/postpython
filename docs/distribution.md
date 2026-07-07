@@ -65,16 +65,16 @@ pixi add ppspecial      # or: conda install ppspecial
 
 ### Install layout
 
-`post-py build --prefix $PREFIX` produces the `libpp<name>` piece in
+`postpyc build --prefix $PREFIX` produces the `libpp<name>` piece in
 the conventional layout recipes expect:
 
 ```
 $PREFIX/lib/lib<artifact>.so          (.dylib on macOS)
 $PREFIX/include/<artifact>.h          stable C ABI declarations
-$PREFIX/share/post-py/<artifact>.json   export manifest ("post_abi": 1)
+$PREFIX/share/postpyc/<artifact>.json   export manifest ("post_abi": 1)
 ```
 
-The NumPy extension module (`post-py build --ext-module`) is built by
+The NumPy extension module (`postpyc build --ext-module`) is built by
 the `pp<name>` recipe and installed into the environment's
 `site-packages` like any extension; it links the same translation units.
 
@@ -89,7 +89,7 @@ outputs:
     requirements:
       build: [postpyc, c-compiler]
     build:
-      script: post-py build ppspecial/__init__.py --prefix $PREFIX
+      script: postpyc build ppspecial/__init__.py --prefix $PREFIX
   - package:
       name: ppspecial
     requirements:
@@ -97,7 +97,7 @@ outputs:
       run: [python, numpy]
     build:
       script: |
-        post-py build ppspecial/__init__.py --ext-module \
+        postpyc build ppspecial/__init__.py --ext-module \
             --module-name ppspecial_native --output $SP_DIR/ppspecial_native.so
         python -m pip install . --no-deps
 ```
@@ -123,14 +123,14 @@ and a C toolchain.
 From a checkout:
 
 ```bash
-post-py build ppspecial/__init__.py --emit-header --emit-manifest
-post-py build ppspecial/__init__.py --ext-module
+postpyc build ppspecial/__init__.py --emit-header --emit-manifest
+postpyc build ppspecial/__init__.py --ext-module
 ```
 
 From an installed pure wheel:
 
 ```bash
-post-py build "$(python -c 'import ppspecial; print(ppspecial.__file__)')" \
+postpyc build "$(python -c 'import ppspecial; print(ppspecial.__file__)')" \
     --ext-module --output ./ppspecial_native.so
 ```
 
