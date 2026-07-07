@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "postpyc"
-version = "0.2.0"
+version = "0.2.1"
 description = "postpyc — the POST Python Compiler: reference implementation of the POST Python standard (import name: postpyc)."
 readme = "README.md"
 requires-python = ">=3.10"

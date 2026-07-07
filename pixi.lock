@@ -3344,8 +3344,8 @@ packages:
   timestamp: 1764896838868
 - pypi: ./
   name: postpyc
-  version: 0.2.0
-  sha256: fe3850578ee34a0658b6ab1ae0df21589fc69e40e39ecad269ca44d42d882419
+  version: 0.2.1
+  sha256: 2c83776dc9ec9a038876b9a4f29f68c0a5267be570e76430eb382548a6b0de76
   requires_dist:
   - postyp>=0.2.0
   - numpy ; extra == 'numpy'
