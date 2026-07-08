@@ -36,6 +36,10 @@ Where CPython behavior conflicts with fixed-width native types, deterministic me
 - Replacing CPython for general scripting.
 - Supporting the full Python object model in compiled output.
 - Providing a runtime garbage collector in compiled binaries.
+- Unifying existing Python compilers. The standard defines a healthy
+  subset that multiple compilers can each target and that library
+  authors can trust — not a reconciliation of those compilers'
+  feature sets.
 
 ---
 
