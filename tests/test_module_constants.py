@@ -212,6 +212,50 @@ def test_module_scope_coefficient_table_pattern():
 
 
 @needs_cc
+def test_nonfinite_math_constants_compile_and_run():
+    # postpython#36: NAN/INF folded from postpyc.math must lower to C99
+    # macros (NAN / INFINITY), not be emitted via repr() as the bare C
+    # identifiers 'nan'/'inf' — which fail to compile (collide with libm's
+    # nan()) rather than matching interpreted mode.
+    lib = ctypes.CDLL(str(build_source(
+        "from postyp import Float64\n"
+        "from postpyc.math import NAN, INF\n"
+        "def get_nan(x: Float64) -> Float64:\n"
+        "    return NAN\n"
+        "def get_inf(x: Float64) -> Float64:\n"
+        "    return INF\n"
+        "def get_neg_inf(x: Float64) -> Float64:\n"
+        "    return -INF\n",
+        filename="nonfinite.py",
+    )))
+    for name in ("get_nan", "get_inf", "get_neg_inf"):
+        fn = getattr(lib, name)
+        fn.argtypes = [ctypes.c_double]
+        fn.restype = ctypes.c_double
+    assert math.isnan(lib.get_nan(1.0))
+    assert math.isinf(lib.get_inf(1.0)) and lib.get_inf(1.0) > 0.0
+    assert math.isinf(lib.get_neg_inf(1.0)) and lib.get_neg_inf(1.0) < 0.0
+
+
+@needs_cc
+def test_nonfinite_complex_constant_compiles():
+    # postpython#36 (complex components): a folded complex constant with a
+    # non-finite part routes each component through _emit_const_value via the
+    # complex branch's recursion; both must lower to C99 macros, not the bare
+    # 'inf'/'nan' tokens that fail to compile. Building without a BuildError
+    # is the regression check — pre-fix this emitted `(inf + 0.0 * ...)`.
+    so = build_source(
+        "from postyp import Complex128\n"
+        "from postpyc.math import INF\n"
+        "Z: Complex128 = INF + 0.0j\n"
+        "def use(x: Complex128) -> Complex128:\n"
+        "    return Z\n",
+        filename="cpx_nonfinite.py",
+    )
+    assert so.exists()
+
+
+@needs_cc
 def test_cross_module_constant_runtime(tmp_path):
     (tmp_path / "consts.py").write_text(
         "from postyp import Float64\n"

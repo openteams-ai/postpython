@@ -11,6 +11,7 @@ numpy.lib.add_newdoc_ufunc or loaded via ctypes.
 from __future__ import annotations
 
 import io
+import math
 from typing import Optional
 
 from ..ir import (
@@ -139,6 +140,14 @@ def _emit_const_value(v: object) -> str:
     if isinstance(v, complex):
         return f"({_emit_const_value(v.real)} + {_emit_const_value(v.imag)} * _Complex_I)"
     if isinstance(v, float):
+        # repr(float('nan')/'inf') yields the bare tokens 'nan'/'inf', which
+        # are not valid C double literals (postpython#36: 'nan' even collides
+        # with libm's nan()). Lower non-finite values to the C99 <math.h>
+        # macros instead so compiled output matches interpreted mode.
+        if math.isnan(v):
+            return "NAN"
+        if math.isinf(v):
+            return "INFINITY" if v > 0.0 else "-INFINITY"
         return repr(v)
     return str(v)
 
