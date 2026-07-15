@@ -138,6 +138,12 @@ def _emit_const_value(v: object) -> str:
     if isinstance(v, bool):
         return "true" if v else "false"
     if isinstance(v, complex):
+        # The `re + im * _Complex_I` arithmetic form corrupts non-finite
+        # components: with im = INFINITY the real part evaluates to
+        # 0.0 * INFINITY = NaN (postpython#36). CMPLX builds the value
+        # componentwise, so e.g. complex(1.0, inf) survives intact.
+        if not (math.isfinite(v.real) and math.isfinite(v.imag)):
+            return f"CMPLX({_emit_const_value(v.real)}, {_emit_const_value(v.imag)})"
         return f"({_emit_const_value(v.real)} + {_emit_const_value(v.imag)} * _Complex_I)"
     if isinstance(v, float):
         # repr(float('nan')/'inf') yields the bare tokens 'nan'/'inf', which
@@ -503,6 +509,12 @@ _PREAMBLE = """\
 #include <string.h>
 #include <stddef.h>
 #include <complex.h>
+
+/* C11 <complex.h> defines CMPLX; pre-C11 modes on gcc/clang don't, but the
+   underlying builtin is available on both. */
+#ifndef CMPLX
+#define CMPLX(re, im) __builtin_complex((double)(re), (double)(im))
+#endif
 
 /* Python-semantic floor division for signed integers: rounds toward -inf,
    unlike C's `/` which truncates toward zero. */

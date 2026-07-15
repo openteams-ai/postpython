@@ -220,12 +220,13 @@ def test_nonfinite_math_constants_compile_and_run():
     lib = ctypes.CDLL(str(build_source(
         "from postyp import Float64\n"
         "from postpyc.math import NAN, INF\n"
+        "NEG: Float64 = -INF\n"
         "def get_nan(x: Float64) -> Float64:\n"
         "    return NAN\n"
         "def get_inf(x: Float64) -> Float64:\n"
         "    return INF\n"
         "def get_neg_inf(x: Float64) -> Float64:\n"
-        "    return -INF\n",
+        "    return NEG\n",
         filename="nonfinite.py",
     )))
     for name in ("get_nan", "get_inf", "get_neg_inf"):
@@ -238,21 +239,51 @@ def test_nonfinite_math_constants_compile_and_run():
 
 
 @needs_cc
-def test_nonfinite_complex_constant_compiles():
+def test_nonfinite_complex_constant_value_survives():
     # postpython#36 (complex components): a folded complex constant with a
-    # non-finite part routes each component through _emit_const_value via the
-    # complex branch's recursion; both must lower to C99 macros, not the bare
-    # 'inf'/'nan' tokens that fail to compile. Building without a BuildError
-    # is the regression check — pre-fix this emitted `(inf + 0.0 * ...)`.
-    so = build_source(
+    # finite real part and a non-finite imaginary part must be emitted with
+    # CMPLX, not the `re + im * _Complex_I` arithmetic form — there
+    # 0.0 * INFINITY contaminates the real part with NaN, so complex(1.0, inf)
+    # would silently compile to complex(nan, inf). (`1e400j` overflows to
+    # infj at fold time, matching interpreted mode.)
+    source = (
         "from postyp import Complex128\n"
-        "from postpyc.math import INF\n"
-        "Z: Complex128 = INF + 0.0j\n"
+        "Z: Complex128 = 1.0 + 1e400j\n"
         "def use(x: Complex128) -> Complex128:\n"
-        "    return Z\n",
-        filename="cpx_nonfinite.py",
+        "    return Z\n"
     )
+    module = _module_ok(source)
+    assert module.constants["Z"] == (Complex128, complex(1.0, math.inf))
+    assert "CMPLX(1.0, INFINITY)" in emit_module(module)
+
+    so = build_source(source, filename="cpx_nonfinite.py")
     assert so.exists()
+    if hasattr(ctypes, "c_double_complex"):  # Python 3.14+
+        lib = ctypes.CDLL(str(so))
+        lib.use.argtypes = [ctypes.c_double_complex]
+        lib.use.restype = ctypes.c_double_complex
+        z = complex(lib.use(0j))
+        assert z.real == 1.0
+        assert math.isinf(z.imag) and z.imag > 0.0
+
+
+@needs_cc
+def test_issue36_guvectorize_reproducer_compiles():
+    # postpython#36's minimal reproducer: a guvectorize kernel storing NAN.
+    # Pre-fix the kernel body emitted the bare identifier 'nan' and the C
+    # compiler rejected the build.
+    source = (
+        "from postyp import Array, Float64\n"
+        "from postpyc import guvectorize\n"
+        "from postpyc.math import NAN\n"
+        "@guvectorize([], \"(n)->()\")\n"
+        "def always_nan(a: Array[Float64], out: Array[Float64]) -> None:\n"
+        "    out[0] = NAN\n"
+    )
+    module, errors = compile_source(source)
+    assert errors == [], errors
+    assert "NAN;" in emit_module(module)
+    assert build_source(source, filename="nan_repro.py").exists()
 
 
 @needs_cc
