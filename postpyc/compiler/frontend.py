@@ -405,16 +405,10 @@ class FunctionLifter:
         node = self._node
 
         parsed_ufunc_sig = parse_ufunc_sig(self._ufunc_sig) if self._ufunc_sig is not None else None
-        if parsed_ufunc_sig is not None and parsed_ufunc_sig.computed_dims:
-            # Slice 38a lands the parser only; lowering follows (issue #38).
-            rendered = ", ".join(
-                f"{name}={dimexpr.render(expr)}"
-                for name, expr in parsed_ufunc_sig.computed_dims.items()
-            )
-            self._unsupported_feature_error(
-                node,
-                f"computed output core dimensions ({rendered}) in `{node.name}`",
-            )
+        # Computed output core dims (e.g. `(n,d)->(m=n*(n-1)//2)`) are lowered:
+        # `m` is a real core dim (below), the kernel reads its size like any
+        # other, and the extension shim installs a process_core_dims_func that
+        # evaluates the expression to size the output before the loop runs.
         core_dim_values: dict[str, Value] = {}
         core_dim_params: list[Param] = []
         if parsed_ufunc_sig is not None:

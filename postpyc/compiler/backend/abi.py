@@ -26,6 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+from .. import dimexpr
 from ..ir import Function, Module, UFunc
 from ..typechecker import TypeError_PP
 from .c_backend import (
@@ -315,6 +316,14 @@ def export_manifest(exports: list[Export], artifact_name: str) -> dict:
                 "loop_symbol": f"{fn.name}_ufunc_loop",
                 "signature": str(fn.ufunc_sig),
             }
+            # str(sig) renders computed output dims by bare name (NumPy's
+            # grammar has no arithmetic); surface the defining expressions
+            # so consumers know how the output is sized.
+            if fn.ufunc_sig.computed_dims:
+                ufunc_info["computed_dims"] = {
+                    name: dimexpr.render(expr)
+                    for name, expr in fn.ufunc_sig.computed_dims.items()
+                }
         entries.append({
             "name": export.python_name,
             "c_symbol": export.c_symbol,

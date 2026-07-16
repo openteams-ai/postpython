@@ -148,6 +148,51 @@ def test_invalid_module_name_raises():
         emit_ext_module([], "not-an-identifier")
 
 
+PDIST_KERNEL = """\
+from postyp import Array, Float64, Int64
+from postpyc import guvectorize
+from postpyc.math import sqrt
+
+@guvectorize([], "(n,d)->(m=n*(n-1)//2)")
+def pdist(points: Array[Float64], out: Array[Float64]) -> None:
+    \"\"\"Condensed pairwise Euclidean distances.\"\"\"
+    n: Int64 = len(points)
+    k: Int64 = 0
+    for i in range(n):
+        for j in range(i + 1, n):
+            acc: Float64 = 0.0
+            for c in range(len(points[i])):
+                diff: Float64 = points[i][c] - points[j][c]
+                acc += diff * diff
+            out[k] = sqrt(acc)
+            k += 1
+"""
+
+
+def test_shim_installs_process_core_dims_for_computed_dim(tmp_path):
+    (tmp_path / "k.py").write_text(PDIST_KERNEL)
+    modules, errors = compile_program(tmp_path / "k.py")
+    assert errors == [], errors
+    shim = emit_ext_module(modules, "k")
+
+    # The callback that sizes the output from the input dims.
+    assert "_pp_pdist_process_core_dims(PyUFuncObject *ufunc, npy_intp *core_dim_sizes)" in shim
+    assert "core_dim_sizes[2] = _pp_computed_m;" in shim
+    assert "__pp_floordiv_si((_pp_cd_n * (_pp_cd_n - 1)), 2)" in shim
+    # It must be wired onto the ufunc object after registration.
+    assert "->process_core_dims_func = &_pp_pdist_process_core_dims;" in shim
+    # process_core_dims_func is a NumPy 2.1 C-API field; the shim must target it.
+    assert "#define NPY_TARGET_VERSION NPY_2_1_API_VERSION" in shim
+
+
+def test_shim_omits_target_version_bump_without_computed_dims(tmp_path):
+    (tmp_path / "kernels.py").write_text(KERNELS)
+    modules, _ = compile_program(tmp_path / "kernels.py")
+    shim = emit_ext_module(modules, "kernels")
+    assert "NPY_TARGET_VERSION" not in shim
+    assert "process_core_dims_func" not in shim
+
+
 # ---------------------------------------------------------------------------
 # Build, import, and execute
 # ---------------------------------------------------------------------------
@@ -182,6 +227,41 @@ def test_ext_module_gufunc_broadcasts_and_honors_strides(tmp_path):
     sliced = np.arange(24.0).reshape(3, 8)[:, ::2]
     assert not sliced.flags.c_contiguous
     assert np.allclose(mod.dot(sliced, b), (sliced * b).sum(axis=1))
+
+
+@needs_cc
+def test_ext_module_computed_output_dim_sizes_output(tmp_path):
+    # pdist's output length m = n*(n-1)//2 is computed from the input by the
+    # process_core_dims_func, so NumPy allocates the result with no out=.
+    ext = _build_ext(tmp_path, "ppext_pdist", {"main.py": PDIST_KERNEL})
+    mod = _import_ext("ppext_pdist", ext)
+
+    assert isinstance(mod.pdist, np.ufunc)
+    assert mod.pdist.signature == "(n,d)->(m)"
+
+    rng = np.random.default_rng(1)
+    X = rng.standard_normal((6, 4))
+    full = np.sqrt(((X[:, None, :] - X[None, :, :]) ** 2).sum(-1))
+    expected = full[np.triu_indices(6, k=1)]
+
+    got = mod.pdist(X)             # NumPy auto-allocates via the callback
+    assert got.shape == (15,)      # 6*5//2
+    assert np.allclose(got, expected)
+
+    # Broadcasting the outer (batch) dimension keeps the computed core dim.
+    batched = mod.pdist(rng.standard_normal((5, 6, 4)))
+    assert batched.shape == (5, 15)
+
+
+@needs_cc
+def test_ext_module_computed_dim_rejects_wrong_sized_out(tmp_path):
+    ext = _build_ext(tmp_path, "ppext_pdist_out", {"main.py": PDIST_KERNEL})
+    mod = _import_ext("ppext_pdist_out", ext)
+
+    X = np.zeros((4, 2))           # n=4 -> m=6
+    assert mod.pdist(X, np.empty(6)).shape == (6,)   # correct size is accepted
+    with pytest.raises(ValueError):
+        mod.pdist(X, np.empty(5))  # callback validates the caller's out=
 
 
 @needs_cc

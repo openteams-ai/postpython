@@ -138,8 +138,8 @@ def f(x: Float64, out: Float64) -> None:
     assert "output dimension 'm' does not appear in an input" in errors[0].message
 
 
-def test_compile_source_guards_computed_dims_with_pp900():
-    """Slice 38a: the parser accepts computed dims; lowering does not yet."""
+def test_compile_source_lowers_computed_dims_without_error():
+    """Slice 38b: computed output core dims lower cleanly (no PP900)."""
     source = """\
 from postpyc import guvectorize
 from postyp import Array, Float64
@@ -149,12 +149,13 @@ def pdist(points: Array[Float64], out: Array[Float64]) -> None:
     out[0] = 0.0
 """
 
-    _, errors = compile_source(source)
+    module, errors = compile_source(source)
 
-    assert "PP900" in [error.code for error in errors]
-    pp900 = next(error for error in errors if error.code == "PP900")
-    assert "computed output core dimensions" in pp900.message
-    assert "m=n*(n-1)//2" in pp900.message
+    assert errors == []
+    pdist = module.get_function("pdist")
+    # `m` is a real core dim: the kernel takes it as a trailing size param.
+    assert "m" in pdist.ufunc_sig.core_dims
+    assert "pp_dim_m" in {p.name for p in pdist.core_dim_params}
 
 
 def test_guvectorize_decorator_accepts_computed_dim_signature():

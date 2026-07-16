@@ -195,6 +195,22 @@ def test_manifest_schema():
     assert by_name["gammaln"]["alias_of"] == "lgamma_like"
 
 
+def test_manifest_records_computed_output_dims():
+    module, errors = compile_source(
+        "from postpyc import guvectorize\n"
+        "from postyp import Array, Float64\n"
+        '@guvectorize([], "(n,d)->(m=n*(n-1)//2)")\n'
+        "def pdist(points: Array[Float64], out: Array[Float64]) -> None:\n"
+        "    out[0] = 0.0\n"
+    )
+    assert errors == []
+    exports, _ = collect_exports([module])
+    ufunc = export_manifest(exports, "pp")["exports"][0]["ufunc"]
+    # Name-only signature stays NumPy-compatible; the expression is separate.
+    assert ufunc["signature"] == "(n,d)->(m)"
+    assert ufunc["computed_dims"] == {"m": "n*(n-1)//2"}
+
+
 # ---------------------------------------------------------------------------
 # Runtime
 # ---------------------------------------------------------------------------
