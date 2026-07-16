@@ -123,16 +123,6 @@ def collect_registrations(modules: list[Module]) -> list[tuple[str, UFunc]]:
     return list(registrations.items())
 
 
-# Python floor-division for the callback's computed-dim arithmetic. Matches
-# the c_backend preamble and dimexpr.to_c so compiled output sizing agrees
-# with the interpreted evaluator for negative dividends.
-_FLOORDIV_MACRO = """\
-/* Python-semantic floor division for signed integers (see dimexpr.to_c). */
-#define __pp_floordiv_si(a, b) \\
-    (((a) / (b)) - ((((a) % (b)) != 0) && (((a) < 0) != ((b) < 0)) ? 1 : 0))
-"""
-
-
 def _process_core_dims_symbol(py_name: str) -> str:
     return f"_pp_{py_name}_process_core_dims"
 
@@ -235,7 +225,7 @@ def emit_ext_module(modules: list[Module], module_name: str) -> str:
     # Computed output core dims: a process_core_dims_func per gufunc that
     # declares one, so NumPy sizes the output before the loop runs.
     if computed:
-        w(_FLOORDIV_MACRO)
+        w(dimexpr.FLOORDIV_SI_C)
         w(dimexpr.CHECKED_ARITH_C)
         for py_name, fn in computed:
             lines.extend(_emit_process_core_dims(py_name, fn))

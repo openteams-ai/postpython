@@ -284,6 +284,20 @@ def to_c(expr: DimExpr, name_of: Callable[[str], str]) -> str:
     return f"({left} {expr.op} {right})"
 
 
+# Canonical C definition of the floor-division helper that ``to_c`` and
+# ``to_c_checked`` output references (via ``__pp_floordiv_si``). This is the
+# single source: every translation unit that renders `//` — the c_backend
+# kernel preamble and the ext_module shim — includes this exact text, so the
+# primitive that keeps compiled `//` in step with Python's `//` (and with the
+# interpreted evaluator) can never drift between them.
+FLOORDIV_SI_C = """\
+/* Python-semantic floor division for signed integers: rounds toward -inf,
+   unlike C's `/` which truncates toward zero. */
+#define __pp_floordiv_si(a, b) \\
+    (((a) / (b)) - ((((a) % (b)) != 0) && (((a) < 0) != ((b) < 0)) ? 1 : 0))
+"""
+
+
 # C runtime helpers that ``to_c_checked`` output references. A translation unit
 # that renders checked dimension expressions must emit this once.
 CHECKED_ARITH_C = """\
