@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..checker import check_source, Violation
+from . import dimexpr
 from .ir import (
     Module, ImportedName, Function, UFunc, UFuncSignature,
     BasicBlock, Param, Value,
@@ -62,6 +63,14 @@ def parse_ufunc_sig(sig: str) -> UFuncSignature:
     """Parse a ufunc layout signature string into a UFuncSignature.
 
     Example: "(m,k),(k,n)->(m,n)" → UFuncSignature(inputs=[['m','k'],['k','n']], outputs=[['m','n']])
+
+    Output groups may declare *computed* core dimensions with the named
+    expression form "name=expr", e.g. "(n,d)->(m=n*(n-1)//2)". The name
+    lands in ``outputs`` like any other dim; the expression (grammar in
+    postpyc.compiler.dimexpr) is carried in ``computed_dims``. Expression
+    free names must be input dimensions. Input groups accept plain names
+    only, and a bare output name that appears in no input is still
+    rejected — only the explicit ``name=expr`` form is computed.
     """
     if sig.count("->") != 1:
         raise ValueError(f"Invalid ufunc layout signature (missing '->'): {sig!r}")
@@ -69,7 +78,26 @@ def parse_ufunc_sig(sig: str) -> UFuncSignature:
 
     name_re = re.compile(r"[a-z][a-z0-9_]*\Z")
 
+    def _split_top_level(inner: str) -> list[str]:
+        """Split group content on commas outside parentheses."""
+        parts: list[str] = []
+        depth = 0
+        current: list[str] = []
+        for ch in inner:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            if ch == "," and depth == 0:
+                parts.append("".join(current).strip())
+                current = []
+            else:
+                current.append(ch)
+        parts.append("".join(current).strip())
+        return parts
+
     def _parse_groups(s: str, side: str) -> list[list[str]]:
+        """Scan '(...)' groups; entries are raw strings, classified later."""
         groups: list[list[str]] = []
         pos = 0
         length = len(s)
@@ -90,11 +118,15 @@ def parse_ufunc_sig(sig: str) -> UFuncSignature:
                 )
             pos += 1
             start = pos
-            while pos < length and s[pos] != ")":
-                if s[pos] == "(":
-                    raise ValueError(
-                        f"Invalid ufunc layout signature (nested '(' in {side} side): {sig!r}"
-                    )
+            depth = 0
+            while pos < length:
+                ch = s[pos]
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    if depth == 0:
+                        break
+                    depth -= 1
                 pos += 1
             if pos == length:
                 raise ValueError(
@@ -104,16 +136,11 @@ def parse_ufunc_sig(sig: str) -> UFuncSignature:
             inner = s[start:pos].strip()
             pos += 1
             if inner:
-                dims = [part.strip() for part in inner.split(",")]
+                dims = _split_top_level(inner)
                 if any(not dim for dim in dims):
                     raise ValueError(
                         f"Invalid ufunc layout signature (empty dimension name in {side} side): {sig!r}"
                     )
-                for dim in dims:
-                    if not name_re.fullmatch(dim):
-                        raise ValueError(
-                            f"Invalid ufunc layout signature dimension name {dim!r}: {sig!r}"
-                        )
             else:
                 dims = []
             groups.append(dims)
@@ -134,16 +161,90 @@ def parse_ufunc_sig(sig: str) -> UFuncSignature:
 
         return groups
 
-    inputs = _parse_groups(lhs, "input")
-    outputs = _parse_groups(rhs, "output")
+    raw_inputs = _parse_groups(lhs, "input")
+    raw_outputs = _parse_groups(rhs, "output")
+
+    inputs: list[list[str]] = []
+    for group in raw_inputs:
+        dims: list[str] = []
+        for entry in group:
+            if not name_re.fullmatch(entry):
+                if "=" in entry or any(c in entry for c in "+-*/%()"):
+                    raise ValueError(
+                        f"Invalid ufunc layout signature: computed dimensions "
+                        f"are only allowed in output groups, got {entry!r} in "
+                        f"an input: {sig!r}"
+                    )
+                raise ValueError(
+                    f"Invalid ufunc layout signature dimension name {entry!r}: {sig!r}"
+                )
+            dims.append(entry)
+        inputs.append(dims)
+
     input_dims = {dim for group in inputs for dim in group}
+
+    outputs: list[list[str]] = []
+    computed: dict[str, dimexpr.DimExpr] = {}
+    for group in raw_outputs:
+        dims = []
+        for entry in group:
+            if name_re.fullmatch(entry):
+                dims.append(entry)
+                continue
+            name, eq, expr_text = entry.partition("=")
+            if not eq:
+                raise ValueError(
+                    f"Invalid ufunc layout signature output dimension {entry!r}: "
+                    f"computed dimensions must be named ('name=expression'): {sig!r}"
+                )
+            name = name.strip()
+            if not name_re.fullmatch(name):
+                raise ValueError(
+                    f"Invalid ufunc layout signature dimension name {name!r}: {sig!r}"
+                )
+            if name in input_dims:
+                raise ValueError(
+                    f"Invalid ufunc layout signature: computed dimension {name!r} "
+                    f"collides with an input dimension: {sig!r}"
+                )
+            if name in computed:
+                raise ValueError(
+                    f"Invalid ufunc layout signature: computed dimension {name!r} "
+                    f"is defined more than once: {sig!r}"
+                )
+            expr = dimexpr.parse_dim_expr(expr_text)
+            names = dimexpr.free_names(expr)
+            if not names:
+                raise ValueError(
+                    f"Invalid ufunc layout signature: computed dimension {name!r} "
+                    f"must reference at least one input dimension: {sig!r}"
+                )
+            unknown = sorted(names - input_dims)
+            if unknown:
+                raise ValueError(
+                    f"Invalid ufunc layout signature: computed dimension {name!r} "
+                    f"references unknown dimension"
+                    f"{'s' if len(unknown) > 1 else ''} "
+                    f"{', '.join(map(repr, unknown))}; expression names must "
+                    f"be input dimensions: {sig!r}"
+                )
+            if isinstance(expr, dimexpr.DimName):
+                raise ValueError(
+                    f"Invalid ufunc layout signature: computed dimension {name!r} "
+                    f"is an alias of input dimension {expr.name!r}; use the "
+                    f"input name directly: {sig!r}"
+                )
+            computed[name] = expr
+            dims.append(name)
+        outputs.append(dims)
+
     for dim in (dim for group in outputs for dim in group):
-        if dim not in input_dims:
+        if dim not in input_dims and dim not in computed:
             raise ValueError(
                 f"Invalid ufunc layout signature output dimension {dim!r} "
                 f"does not appear in an input: {sig!r}"
             )
-    return UFuncSignature(inputs=inputs, outputs=outputs)
+    return UFuncSignature(inputs=inputs, outputs=outputs, computed_dims=computed)
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +405,16 @@ class FunctionLifter:
         node = self._node
 
         parsed_ufunc_sig = parse_ufunc_sig(self._ufunc_sig) if self._ufunc_sig is not None else None
+        if parsed_ufunc_sig is not None and parsed_ufunc_sig.computed_dims:
+            # Slice 38a lands the parser only; lowering follows (issue #38).
+            rendered = ", ".join(
+                f"{name}={dimexpr.render(expr)}"
+                for name, expr in parsed_ufunc_sig.computed_dims.items()
+            )
+            self._unsupported_feature_error(
+                node,
+                f"computed output core dimensions ({rendered}) in `{node.name}`",
+            )
         core_dim_values: dict[str, Value] = {}
         core_dim_params: list[Param] = []
         if parsed_ufunc_sig is not None:

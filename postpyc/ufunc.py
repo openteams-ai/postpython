@@ -30,6 +30,7 @@ import functools
 import inspect
 from typing import Any, Callable, get_type_hints
 
+from .compiler import dimexpr
 from .compiler.ir import UFuncSignature
 
 
@@ -191,6 +192,26 @@ def _broadcast_call(fn: Callable, sig: UFuncSignature, args: tuple) -> Any:
                         f"ufunc core dimension {name!r} has inconsistent "
                         f"sizes: {known} vs {size}"
                     )
+
+        # Computed output core dimensions: evaluate each expression against the
+        # input-derived sizes and fold the result into core_sizes, so the
+        # output-shape loop below resolves it like any other core dim. Free
+        # names are guaranteed (by parse_ufunc_sig) to be input dims, so the
+        # bindings needed are all present. This is the interpreted mirror of the
+        # C lowering; both go through the single dimexpr evaluator, and the
+        # int64 range check lives there.
+        for name, expr in sig.computed_dims.items():
+            size = dimexpr.evaluate(expr, core_sizes)
+            if size < 0:
+                bindings = ", ".join(
+                    f"{n}={core_sizes[n]}" for n in sorted(dimexpr.free_names(expr))
+                )
+                raise ValueError(
+                    f"computed output core dimension {name!r} = "
+                    f"{dimexpr.render(expr)} evaluated to a negative size "
+                    f"{size} (with {bindings}); output shape is undefined"
+                )
+            core_sizes[name] = size
 
         out_batch_shape = np.broadcast_shapes(*batch_shapes) if batch_shapes else ()
 

@@ -2,6 +2,7 @@
 
 import pytest
 
+from postpyc.compiler.dimexpr import evaluate, render
 from postpyc.compiler.frontend import compile_source
 from postpyc.ufunc import guvectorize, parse_layout_signature
 
@@ -21,6 +22,77 @@ def test_valid_layout_signatures(signature, inputs, outputs):
 
     assert parsed.inputs == inputs
     assert parsed.outputs == outputs
+    assert parsed.computed_dims == {}
+
+
+# ---------------------------------------------------------------------------
+# Computed output core dimensions — the named expression form (issue #38)
+# ---------------------------------------------------------------------------
+
+def test_computed_dim_pdist_signature():
+    parsed = parse_layout_signature("(n,d)->(m=n*(n-1)//2)")
+
+    assert parsed.inputs == [["n", "d"]]
+    assert parsed.outputs == [["m"]]           # name only — plumbing-uniform
+    assert list(parsed.computed_dims) == ["m"]
+    assert render(parsed.computed_dims["m"]) == "n*(n-1)//2"
+    assert evaluate(parsed.computed_dims["m"], {"n": 4, "d": 3}) == 6
+    # The name-only rendering is what NumPy registration will consume.
+    assert str(parsed) == "(n,d)->(m)"
+    # Computed dims are ordinary core dims: pp_dim_m plumbing stays uniform.
+    assert parsed.core_dims == ["n", "d", "m"]
+
+
+def test_computed_dim_convolve_signature():
+    parsed = parse_layout_signature("(n),(m)->(k=n+m-1)")
+
+    assert parsed.inputs == [["n"], ["m"]]
+    assert parsed.outputs == [["k"]]
+    assert evaluate(parsed.computed_dims["k"], {"n": 3, "m": 4}) == 6
+    assert str(parsed) == "(n),(m)->(k)"
+
+
+def test_computed_dim_tolerates_whitespace():
+    parsed = parse_layout_signature(" (n,d) -> ( m = n * (n-1) // 2 ) ")
+
+    assert parsed.outputs == [["m"]]
+    assert render(parsed.computed_dims["m"]) == "n*(n-1)//2"
+
+
+def test_computed_dim_reusable_as_bare_name_in_other_outputs():
+    # A computed name is a real core dim; later output groups may reuse it.
+    parsed = parse_layout_signature("(n)->(m=n+1),(m)")
+
+    assert parsed.outputs == [["m"], ["m"]]
+    assert list(parsed.computed_dims) == ["m"]
+
+
+@pytest.mark.parametrize(
+    ("signature", "match"),
+    [
+        # Anonymous expressions must be named.
+        ("(n)->(n*(n-1)//2)", "must be named"),
+        # '((n))' stays invalid: not a name, not a 'name=expr'.
+        ("(n)->((n))", "must be named"),
+        # Unknown symbol inside an expression names the symbol.
+        ("(n)->(m=q+1)", "unknown dimension 'q'"),
+        # True division and modulo are rejected with guidance.
+        ("(n)->(m=n/2)", "use floor division '//'"),
+        ("(n)->(m=n%2)", "'%' is not supported"),
+        # Division safety: literal-positive divisors only.
+        ("(n)->(m=n//0)", "positive integer literal"),
+        # Expressions are output-side only.
+        ("(m=n)->(n)", "only allowed in output groups"),
+        # Name hygiene.
+        ("(n)->(n=n+1)", "collides with an input dimension"),
+        ("(n)->(m=n)", "alias of input dimension 'n'"),
+        ("(n)->(m=3)", "must reference at least one input dimension"),
+        ("(n)->(m=n+1),(m=n+2)", "defined more than once"),
+    ],
+)
+def test_invalid_computed_dim_signatures(signature, match):
+    with pytest.raises(ValueError, match=match):
+        parse_layout_signature(signature)
 
 
 @pytest.mark.parametrize(
@@ -64,3 +136,32 @@ def f(x: Float64, out: Float64) -> None:
 
     assert [error.code for error in errors] == ["PP100"]
     assert "output dimension 'm' does not appear in an input" in errors[0].message
+
+
+def test_compile_source_guards_computed_dims_with_pp900():
+    """Slice 38a: the parser accepts computed dims; lowering does not yet."""
+    source = """\
+from postpyc import guvectorize
+from postyp import Array, Float64
+
+@guvectorize([], "(n,d)->(m=n*(n-1)//2)")
+def pdist(points: Array[Float64], out: Array[Float64]) -> None:
+    out[0] = 0.0
+"""
+
+    _, errors = compile_source(source)
+
+    assert "PP900" in [error.code for error in errors]
+    pp900 = next(error for error in errors if error.code == "PP900")
+    assert "computed output core dimensions" in pp900.message
+    assert "m=n*(n-1)//2" in pp900.message
+
+
+def test_guvectorize_decorator_accepts_computed_dim_signature():
+    @guvectorize([], "(n,d)->(m=n*(n-1)//2)")
+    def pdist(points, out) -> None:  # pragma: no cover - never invoked
+        out[0] = 0.0
+
+    parsed = pdist.__pp_ufunc_sig__
+    assert parsed.outputs == [["m"]]
+    assert "m" in parsed.computed_dims
