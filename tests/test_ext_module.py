@@ -178,7 +178,11 @@ def test_shim_installs_process_core_dims_for_computed_dim(tmp_path):
     # The callback that sizes the output from the input dims.
     assert "_pp_pdist_process_core_dims(PyUFuncObject *ufunc, npy_intp *core_dim_sizes)" in shim
     assert "core_dim_sizes[2] = _pp_computed_m;" in shim
-    assert "__pp_floordiv_si((_pp_cd_n * (_pp_cd_n - 1)), 2)" in shim
+    # Arithmetic is int64 overflow-checked so it agrees with dimexpr.evaluate
+    # instead of wrapping (C signed overflow is UB).
+    assert "__pp_floordiv_si(__pp_ckd_mul_i64(_pp_cd_n, __pp_ckd_sub_i64(_pp_cd_n, 1, &_pp_ovf), &_pp_ovf), 2)" in shim
+    assert "static int64_t __pp_ckd_mul_i64(" in shim
+    assert "PyExc_OverflowError" in shim
     # It must be wired onto the ufunc object after registration.
     assert "->process_core_dims_func = &_pp_pdist_process_core_dims;" in shim
     # process_core_dims_func is a NumPy 2.1 C-API field; the shim must target it.
@@ -262,6 +266,21 @@ def test_ext_module_computed_dim_rejects_wrong_sized_out(tmp_path):
     assert mod.pdist(X, np.empty(6)).shape == (6,)   # correct size is accepted
     with pytest.raises(ValueError):
         mod.pdist(X, np.empty(5))  # callback validates the caller's out=
+
+
+@needs_cc
+def test_ext_module_computed_dim_overflow_raises_not_wraps(tmp_path):
+    # m = n*(n-1)//2 overflows int64 for very large n. The callback computes it
+    # with overflow-checked arithmetic and raises instead of wrapping to a
+    # wrong (possibly positive) size. A 0-stride broadcast view supplies the
+    # huge n without allocating it.
+    ext = _build_ext(tmp_path, "ppext_pdist_ovf", {"main.py": PDIST_KERNEL})
+    mod = _import_ext("ppext_pdist_ovf", ext)
+    huge = np.lib.stride_tricks.as_strided(
+        np.zeros((1, 1)), shape=(5_000_000_000, 1), strides=(0, 0)
+    )
+    with pytest.raises(OverflowError):
+        mod.pdist(huge)
 
 
 @needs_cc

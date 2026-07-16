@@ -159,14 +159,21 @@ def _emit_process_core_dims(py_name: str, fn: UFunc) -> list[str]:
     w(f"{_process_core_dims_symbol(py_name)}(PyUFuncObject *ufunc, npy_intp *core_dim_sizes)")
     w("{")
     w("    (void)ufunc;")
+    w("    int _pp_ovf = 0;")
     for name in needed:
-        w(f"    npy_intp _pp_cd_{name} = core_dim_sizes[{order.index(name)}];")
+        w(f"    int64_t _pp_cd_{name} = core_dim_sizes[{order.index(name)}];")
     for cd_name, expr in sig.computed_dims.items():
         ix = order.index(cd_name)
         rendered = dimexpr.render(expr)
-        cexpr = dimexpr.to_c(expr, lambda nm: f"_pp_cd_{nm}")
+        cexpr = dimexpr.to_c_checked(expr, lambda nm: f"_pp_cd_{nm}", "_pp_ovf")
         var = f"_pp_computed_{cd_name}"
-        w(f"    npy_intp {var} = {cexpr};")
+        w(f"    int64_t {var} = {cexpr};")
+        w(f"    if (_pp_ovf) {{")
+        w(f"        PyErr_Format(PyExc_OverflowError,")
+        w(f'            "{py_name}: computed output core dimension \'{cd_name}\' '
+          f'({rendered}) overflowed int64");')
+        w(f"        return -1;")
+        w(f"    }}")
         w(f"    if ({var} < 0) {{")
         w(f"        PyErr_Format(PyExc_ValueError,")
         w(f'            "{py_name}: computed output core dimension \'{cd_name}\' '
@@ -229,6 +236,7 @@ def emit_ext_module(modules: list[Module], module_name: str) -> str:
     # declares one, so NumPy sizes the output before the loop runs.
     if computed:
         w(_FLOORDIV_MACRO)
+        w(dimexpr.CHECKED_ARITH_C)
         for py_name, fn in computed:
             lines.extend(_emit_process_core_dims(py_name, fn))
             w("")

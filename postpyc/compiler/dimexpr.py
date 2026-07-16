@@ -282,3 +282,45 @@ def to_c(expr: DimExpr, name_of: Callable[[str], str]) -> str:
     # Each binop renders as one parenthesized unit, so C operator
     # precedence can never reassociate the tree.
     return f"({left} {expr.op} {right})"
+
+
+# C runtime helpers that ``to_c_checked`` output references. A translation unit
+# that renders checked dimension expressions must emit this once.
+CHECKED_ARITH_C = """\
+/* int64 overflow-checked +, -, * for computed dimension sizes: set *ovf on
+   overflow so the caller can raise instead of wrapping, matching the int64
+   range check in dimexpr.evaluate. Floor division (//) is by a positive
+   literal (parser-enforced) and cannot overflow, so it keeps __pp_floordiv_si. */
+static int64_t __pp_ckd_mul_i64(int64_t a, int64_t b, int *ovf) {
+    int64_t r; if (__builtin_mul_overflow(a, b, &r)) *ovf = 1; return r;
+}
+static int64_t __pp_ckd_add_i64(int64_t a, int64_t b, int *ovf) {
+    int64_t r; if (__builtin_add_overflow(a, b, &r)) *ovf = 1; return r;
+}
+static int64_t __pp_ckd_sub_i64(int64_t a, int64_t b, int *ovf) {
+    int64_t r; if (__builtin_sub_overflow(a, b, &r)) *ovf = 1; return r;
+}
+"""
+
+_CHECKED_C_FUNC = {"+": "__pp_ckd_add_i64", "-": "__pp_ckd_sub_i64", "*": "__pp_ckd_mul_i64"}
+
+
+def to_c_checked(expr: DimExpr, name_of: Callable[[str], str], overflow_flag: str) -> str:
+    """Render as a C int64 expression whose +, -, * are overflow-checked.
+
+    Every add/sub/mul goes through a ``__pp_ckd_*`` helper (see
+    ``CHECKED_ARITH_C``) that sets the C ``int`` lvalue named by
+    *overflow_flag* on int64 overflow, so the compiled evaluation raises on
+    the same inputs ``dimexpr.evaluate`` rejects instead of silently wrapping
+    (C signed overflow is undefined behaviour). ``//`` renders through
+    ``__pp_floordiv_si`` exactly as :func:`to_c`.
+    """
+    if isinstance(expr, DimConst):
+        return str(expr.value)
+    if isinstance(expr, DimName):
+        return name_of(expr.name)
+    left = to_c_checked(expr.left, name_of, overflow_flag)
+    right = to_c_checked(expr.right, name_of, overflow_flag)
+    if expr.op == "//":
+        return f"__pp_floordiv_si({left}, {right})"
+    return f"{_CHECKED_C_FUNC[expr.op]}({left}, {right}, &{overflow_flag})"
