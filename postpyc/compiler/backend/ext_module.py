@@ -208,6 +208,12 @@ def emit_ext_module(modules: list[Module], module_name: str) -> str:
     w("#define PY_SSIZE_T_CLEAN")
     w("#define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION")
     if computed:
+        driving = ", ".join(py_name for py_name, _ in computed)
+        w(f"/* {driving}: computed output core dimension(s) use")
+        w("   process_core_dims_func, a NumPy 2.1 C-API field, so this whole module")
+        w("   targets the 2.1 API. Other ufuncs here are unaffected at runtime;")
+        w('   building against older NumPy headers fails with NumPy\'s own')
+        w('   "NPY_TARGET_VERSION higher than NumPy headers" error. */')
         w("#define NPY_TARGET_VERSION NPY_2_1_API_VERSION")
     w("#include <Python.h>")
     w("#include <numpy/arrayobject.h>")

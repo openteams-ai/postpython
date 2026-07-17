@@ -166,3 +166,25 @@ def test_guvectorize_decorator_accepts_computed_dim_signature():
     parsed = pdist.__pp_ufunc_sig__
     assert parsed.outputs == [["m"]]
     assert "m" in parsed.computed_dims
+
+
+def test_vectorize_kernels_never_carry_computed_dims():
+    """Computed dims cannot reach the @vectorize path: the frontend always
+    synthesizes a scalar `()->()` signature for it, so the whole computed-dim
+    machinery (and its NumPy 2.1 requirement) is structurally out of reach for
+    element-wise kernels rather than merely rejected after the fact.
+    """
+    source = """\
+from postpyc import vectorize
+from postyp import Float64
+
+@vectorize
+def scale(x: Float64, y: Float64) -> Float64:
+    return x * y
+"""
+    module, errors = compile_source(source)
+    assert errors == []
+    fn = module.get_function("scale")
+    assert str(fn.ufunc_sig) == "(),()->()"
+    assert fn.ufunc_sig.computed_dims == {}
+    assert fn.core_dim_params == []

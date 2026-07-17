@@ -197,6 +197,31 @@ def test_shim_omits_target_version_bump_without_computed_dims(tmp_path):
     assert "process_core_dims_func" not in shim
 
 
+def test_callback_indexes_core_dims_by_signature_order(tmp_path):
+    # A non-trivial signature pins the invariant that the callback indexes
+    # NumPy's core_dim_sizes by sig.core_dims order (first appearance across
+    # inputs then outputs), matching NumPy's own core_dim_ix assignment.
+    # Order here is [k, n, m, p] -> indices 0,1,2,3; p=k+m must read k at 0
+    # and m at 2 (skipping n at 1) and write p at 3.
+    (tmp_path / "k.py").write_text(
+        "from postyp import Array, Float64\n"
+        "from postpyc import guvectorize\n"
+        '@guvectorize([], "(k,n),(n,m)->(p=k+m)")\n'
+        "def f(a: Array[Float64], b: Array[Float64], out: Array[Float64]) -> None:\n"
+        "    out[0] = 0.0\n"
+    )
+    modules, errors = compile_program(tmp_path / "k.py")
+    assert errors == [], errors
+    assert modules[-1].get_function("f").ufunc_sig.core_dims == ["k", "n", "m", "p"]
+    shim = emit_ext_module(modules, "k")
+    assert "int64_t _pp_cd_k = core_dim_sizes[0];" in shim
+    assert "int64_t _pp_cd_m = core_dim_sizes[2];" in shim
+    assert "__pp_ckd_add_i64(_pp_cd_k, _pp_cd_m, &_pp_ovf)" in shim
+    assert "core_dim_sizes[3] = _pp_computed_p;" in shim
+    # n (index 1) is not referenced by the expression, so no local is emitted.
+    assert "_pp_cd_n" not in shim
+
+
 # ---------------------------------------------------------------------------
 # Build, import, and execute
 # ---------------------------------------------------------------------------
