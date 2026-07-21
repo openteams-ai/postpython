@@ -507,25 +507,34 @@ The standard CPU target is `"cpu"`.  `"parallel"`, `"cuda"`, and other targets a
 
 ```
 layout_sig  ::= input_sigs "->" output_sigs
-input_sigs  ::= "(" dim_names ")" ("," "(" dim_names ")")*
-output_sigs ::= "(" dim_names ")" ("," "(" dim_names ")")*
-dim_names   ::= ""                      # scalar output/input
-              | name ("," name)*        # named dimensions
+input_sigs  ::= "(" in_dims ")" ("," "(" in_dims ")")*
+output_sigs ::= "(" out_dims ")" ("," "(" out_dims ")")*
+in_dims     ::= "" | name ("," name)*             # named input dimensions
+out_dims    ::= "" | out_dim ("," out_dim)*
+out_dim     ::= name                              # core dim shared with an input
+              | name "=" dim_expr                 # computed output core dim
+dim_expr    ::= term (("+" | "-") term)*
+term        ::= factor (("*" | "//") factor)*
+factor      ::= INT | name | "(" dim_expr ")"
 name        ::= [a-z][a-z0-9_]*
 ```
 
 Named dimensions that appear in both input and output signatures are **core dimensions** — their size must be consistent across all arguments.
 
+An output dimension may instead be **computed** from input dimensions with the `name = dim_expr` form (e.g. `(n,d)->(m=n*(n-1)//2)`). Constraints: every name in `dim_expr` must be an input dimension; `//` is floor division and its divisor must be a positive integer literal; `/`, `%`, and unary minus are rejected. The computed name is a normal core dimension elsewhere in the signature. The output size is determined before the loop runs, so this expresses outputs whose length is a function of the input shapes — never of the input *values*.
+
 Examples:
 
-| Signature             | Operation                        |
-|-----------------------|----------------------------------|
-| `"()->()"`            | scalar element-wise              |
-| `"(n)->(n)"`          | element-wise on 1-D array        |
-| `"(n)->()"`           | reduction over last axis         |
-| `"(n),(n)->()"`       | inner product                    |
-| `"(m,k),(k,n)->(m,n)"`| matrix multiply                  |
-| `"(n,n)->()"`         | square-matrix scalar (e.g. det)  |
+| Signature                | Operation                        |
+|--------------------------|----------------------------------|
+| `"()->()"`               | scalar element-wise              |
+| `"(n)->(n)"`             | element-wise on 1-D array        |
+| `"(n)->()"`              | reduction over last axis         |
+| `"(n),(n)->()"`          | inner product                    |
+| `"(m,k),(k,n)->(m,n)"`   | matrix multiply                  |
+| `"(n,n)->()"`            | square-matrix scalar (e.g. det)  |
+| `"(n,d)->(m=n*(n-1)//2)"`| condensed pairwise distances (`pdist`) |
+| `"(n),(m)->(k=n+m-1)"`   | full convolution                 |
 
 ### 8.4 Type Constraints
 
@@ -555,6 +564,8 @@ Where:
 - `args[i]` points to the first element of argument `i`.
 
 The compiler emits the outer broadcast loop and maps each array argument to the POST Array ABI view described in Section 9.2 before calling the user kernel.  This preserves shape, stride, and offset metadata inside the native kernel instead of passing only a raw data pointer.
+
+A **computed output core dimension** (`name = dim_expr`) is lowered through NumPy's `process_core_dims_func`: the compiler emits a function that evaluates `dim_expr` over the input-derived core-dimension sizes and fills the output-only dimension before allocation, so `out=`-less calls size their result automatically.  When the caller supplies an output array, the same function validates its size against the expression.  Evaluation uses the same expression semantics as interpreted mode (Python `//`, int64 result range), so both modes agree.  The name-only signature (`(n,d)->(m)`) is what registers with NumPy; the defining expression travels in the export manifest (Section 9.1).
 
 ### 8.6 Interpreted Mode
 

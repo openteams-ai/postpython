@@ -19,7 +19,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
+
+if TYPE_CHECKING:
+    from .dimexpr import DimExpr
 
 # sys.path setup happens once in postpyc/__init__.py.
 import postpyc  # noqa: F401  -- ensure path setup runs
@@ -280,9 +283,18 @@ class Function:
 
 @dataclass
 class UFuncSignature:
-    """Parsed ufunc layout signature, e.g. '(m,k),(k,n)->(m,n)'."""
+    """Parsed ufunc layout signature, e.g. '(m,k),(k,n)->(m,n)'.
+
+    ``inputs``/``outputs`` hold plain dimension names only. An output group
+    may declare a *computed* dimension with the named expression form
+    ``(n,d)->(m=n*(n-1)//2)``: the name ``m`` lands in ``outputs`` like any
+    other dim (so core-dim plumbing is uniform), and the defining expression
+    is carried separately in ``computed_dims``.
+    """
     inputs: list[list[str]]   # list of core-dim name lists, one per input
     outputs: list[list[str]]  # list of core-dim name lists, one per output
+    # Computed output dims: name -> dimexpr.DimExpr, in declaration order.
+    computed_dims: dict[str, "DimExpr"] = field(default_factory=dict)
 
     @property
     def core_dims(self) -> list[str]:
@@ -294,6 +306,13 @@ class UFuncSignature:
         return list(seen)
 
     def __str__(self) -> str:
+        """Name-only rendering — safe for NumPy ufunc registration.
+
+        Computed dims render as their bare name; the defining expressions
+        live in ``computed_dims`` (NumPy's signature grammar has no
+        arithmetic, and its own ``euclidean_pdist`` registers ``(n,d)->(p)``
+        exactly this way).
+        """
         def fmt(groups: list[list[str]]) -> str:
             return ",".join("(" + ",".join(g) + ")" for g in groups)
         return fmt(self.inputs) + "->" + fmt(self.outputs)
