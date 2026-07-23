@@ -12,7 +12,7 @@ import shutil
 import pytest
 
 from postpyc.build import build_file, build_source
-from postpyc.compiler.backend.c_backend import emit_module
+from postpyc.compiler.backend.c_backend import _emit_const_value, emit_module
 from postpyc.compiler.frontend import compile_program, compile_source
 from postyp import Bool, Complex128, Float64, Int64
 
@@ -102,6 +102,35 @@ def test_function_alias_lines_are_skipped_not_fatal():
     )
     assert "gammaln" not in module.constants
     assert module.constants["AFTER"] == (Float64, 1.5)
+
+
+# ---------------------------------------------------------------------------
+# Non-finite constant lowering (postpython#36)
+# ---------------------------------------------------------------------------
+
+def test_non_finite_floats_lower_to_math_h_macros():
+    # repr() emits the bare tokens ``nan``/``inf``, which are not valid C float
+    # constants (``nan`` collides with libm's ``double nan(const char *)``).
+    assert _emit_const_value(float("nan")) == "NAN"
+    assert _emit_const_value(float("inf")) == "INFINITY"
+    assert _emit_const_value(float("-inf")) == "-INFINITY"
+    # Finite floats, including signed zero, are unaffected.
+    assert _emit_const_value(1.5) == repr(1.5)
+    assert _emit_const_value(-0.0) == repr(-0.0)
+
+
+def test_nan_inf_constants_appear_in_emitted_c():
+    c = emit_module(_module_ok(
+        "from postyp import Float64\n"
+        "from postpyc.math import NAN, INF\n"
+        "def r_nan() -> Float64:\n"
+        "    return NAN\n"
+        "def r_inf() -> Float64:\n"
+        "    return INF\n"
+    ))
+    assert "NAN" in c and "INFINITY" in c
+    # The bare identifiers must not leak into the generated C.
+    assert "= nan;" not in c and "= inf;" not in c
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +238,32 @@ def test_module_scope_coefficient_table_pattern():
 
     for x in (-2.0, 0.0, 1.0, 3.5):
         assert poly(x) == reference(x)
+
+
+@needs_cc
+def test_non_finite_constants_round_trip_at_runtime():
+    # postpython#36: NAN/INF constants must compile and evaluate to the same
+    # non-finite values the interpreter produces.
+    lib = ctypes.CDLL(str(build_source(
+        "from postyp import Float64\n"
+        "from postpyc.math import NAN, INF\n"
+        "def r_nan() -> Float64:\n"
+        "    return NAN\n"
+        "def r_pinf() -> Float64:\n"
+        "    return INF\n"
+        "def r_ninf() -> Float64:\n"
+        "    return -INF\n",
+        filename="non_finite.py",
+    )))
+    for name in ("r_nan", "r_pinf", "r_ninf"):
+        fn = getattr(lib, name)
+        fn.argtypes = []
+        fn.restype = ctypes.c_double
+    assert math.isnan(lib.r_nan())
+    pinf = lib.r_pinf()
+    ninf = lib.r_ninf()
+    assert math.isinf(pinf) and pinf > 0.0
+    assert math.isinf(ninf) and ninf < 0.0
 
 
 @needs_cc
